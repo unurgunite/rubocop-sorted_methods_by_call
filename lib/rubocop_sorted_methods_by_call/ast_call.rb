@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "compare"
+require_relative "extensions/util"
 
 module RubocopSortedMethodsByCall
   # The +Processor+ class is corresponding for analyzing method
@@ -87,10 +88,13 @@ module RubocopSortedMethodsByCall
     # @see AST::Node#on_def
     def on_def(node, *name)
       name = name.first || :main
-      @methods_list.deep_merge({ name => node.children.first })
+      @methods_list  = ::RubocopSortedMethodsByCall::Util.deep_merge(@methods_list, { name => node.children.first })
       invoked_methods = node.children[2]
       invoked_methods&.children&.each do |c|
-        return @trace.deep_merge({ name => c }) if c.is_a?(Symbol) && (invoked_methods.type != :lvar || c.type != :lvar)
+        if c.is_a?(Symbol) && (invoked_methods.type != :lvar || c.type != :lvar)
+          return @trace = ::RubocopSortedMethodsByCall::Util.deep_merge(@trace,
+                                  { name => c })
+        end
 
         on_send(c, name) if c.type == :send
       rescue NoMethodError
@@ -114,7 +118,7 @@ module RubocopSortedMethodsByCall
     #
     # @see AST::Node#on_send
     def on_send(node, *name)
-      @trace.deep_merge({ name[0] || :main => node.children[1] })
+      @trace = ::RubocopSortedMethodsByCall::Util.deep_merge(@trace, { name[0] || :main => node.children[1] })
     end
 
     # +Processor#on_class(node)+                      -> value
@@ -127,7 +131,7 @@ module RubocopSortedMethodsByCall
     # @param [AST::Node] node An object representing +:class+ node.
     # @return [Object]
     def on_class(node)
-      class_name = "class_#{node.children.first.children.last}".to_sym
+      class_name = :"class_#{node.children.first.children.last}"
       on_begin(node.children[2], class_name)
     end
 

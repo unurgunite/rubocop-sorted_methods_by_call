@@ -3,7 +3,7 @@
 module RubocopSortedMethodsByCall
   module Inject
     def self.defaults!
-      return unless defined?(::RuboCop) && defined?(::RuboCop::ConfigLoader)
+      return unless defined?(::RuboCop::ConfigLoader)
 
       path = File.expand_path("../../config/default.yml", __dir__)
       hash =
@@ -11,7 +11,7 @@ module RubocopSortedMethodsByCall
           ::RuboCop::YAML.safe_load_file(path)
         else
           require "yaml"
-          YAML.safe_load(File.read(path), permitted_classes: [Regexp], aliases: true) || {}
+          YAML.safe_load_file(path, permitted_classes: [Regexp], aliases: true) || {}
         end
 
       config = ::RuboCop::Config.new(hash, path)

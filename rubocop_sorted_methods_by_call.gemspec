@@ -28,7 +28,6 @@ Gem::Specification.new do |spec|
   spec.bindir = "exe"
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
-  spec.extensions = ["ext/rubocop_sorted_methods_by_call/extconf.rb"]
 
   spec.add_dependency "racc", ">= 1.6"
   spec.add_dependency "rubocop", ">= 1.56", "< 2.0"
@@ -40,4 +39,5 @@ Gem::Specification.new do |spec|
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html
+  spec.metadata["rubygems_mfa_required"] = "true"
 end
