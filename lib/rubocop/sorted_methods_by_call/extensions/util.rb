@@ -3,18 +3,25 @@
 module RuboCop
   module SortedMethodsByCall
     module Util # :nodoc:
-      # +Rubocop::SortedMethodsByCall::Util.deep_merge(other)+                         -> Hash
+      # +RuboCop::SortedMethodsByCall::Util.deep_merge(hash, other)+ -> Hash
       #
-      # This method merges two hashes without overriding identical keys during
-      # name pollutions.
+      # Merges two hashes without overwriting values that share the same key.
+      # When a key exists in both hashes, values are accumulated into an array
+      # ("buckets"). Scalars are wrapped to arrays automatically.
       #
-      # @example
-      #   a = {:main=>[:abc], :class_T=>[:hi]}
-      #   b = {:class_T=>:h1}
-      #   a.deep_merge(b) #=>  {:main=>[:abc], :class_T=>[:hi, :h1]} # values are stored in 'buckets'
-      # @param [Hash] other Some hash.
-      # @return [NilClass] if +other+ is not a Hash object.
-      # @return [Hash]
+      # - Non-destructive: returns a new Hash; does not mutate +hash+.
+      # - If +other+ is not a Hash, the original +hash+ is returned as-is.
+      #
+      # @example Accumulate values into buckets
+      #   base  = { main: :abc, class_T: :hi }
+      #   other = { class_T: :h1 }
+      #   RuboCop::SortedMethodsByCall::Util.deep_merge(base, other)
+      #   #=> { main: [:abc], class_T: [:hi, :h1] }
+      #
+      # @param [Hash] hash  The base hash to merge from.
+      # @param [Hash] other The hash to merge into +hash+.
+      # @return [Hash] A new hash with accumulated values per key.
+      # @see Hash#merge
       def self.deep_merge(h, other)
         return h unless other.is_a?(Hash)
 
