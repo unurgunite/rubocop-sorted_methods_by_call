@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "parser/current"
 require_relative "compare"
 require_relative "extensions/util"
 
@@ -32,7 +33,7 @@ module RubocopSortedMethodsByCall
     def process(node, *name)
       return on_def(node, name[0]) if node.type == :def
 
-      [super(node), name[0]]
+      super(node)
     end
 
     # +Processor#on_begin(node)+                      -> Array
@@ -50,9 +51,7 @@ module RubocopSortedMethodsByCall
     # @see AST::Node#on_begin
     def on_begin(node, *name)
       name = name.first || :main
-      node&.children&.each do |c|
-        process(c, name)
-      end
+      node&.children&.each { |c| process(c, name) }
     end
 
     # +Processor#handler_missing(node)+               -> String
@@ -88,14 +87,14 @@ module RubocopSortedMethodsByCall
     # @see AST::Node#on_def
     def on_def(node, *name)
       name = name.first || :main
-      @methods_list  = ::RubocopSortedMethodsByCall::Util.deep_merge(@methods_list, { name => node.children.first })
+      @methods_list = Util.deep_merge(@methods_list, { name => node.children.first })
+
       invoked_methods = node.children[2]
       invoked_methods&.children&.each do |c|
         if c.is_a?(Symbol) && (invoked_methods.type != :lvar || c.type != :lvar)
-          return @trace = ::RubocopSortedMethodsByCall::Util.deep_merge(@trace,
-                                  { name => c })
+          @trace = Util.deep_merge(@trace, { name => c })
+          next
         end
-
         on_send(c, name) if c.type == :send
       rescue NoMethodError
         next
@@ -118,7 +117,7 @@ module RubocopSortedMethodsByCall
     #
     # @see AST::Node#on_send
     def on_send(node, *name)
-      @trace = ::RubocopSortedMethodsByCall::Util.deep_merge(@trace, { name[0] || :main => node.children[1] })
+      @trace = Util.deep_merge(@trace, { name[0] || :main => node.children[1] })
     end
 
     # +Processor#on_class(node)+                      -> value

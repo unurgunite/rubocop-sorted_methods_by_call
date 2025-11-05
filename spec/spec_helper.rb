@@ -3,7 +3,6 @@
 require "rubocop"
 require "rubocop/rspec/expect_offense"
 require "parser/current"
-require "rubocop_sorted_methods_by_call/extensions/extensions"
 require "rubocop_sorted_methods_by_call/ast_call"
 
 RSpec.configure do |config|

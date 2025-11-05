@@ -57,20 +57,22 @@ module RuboCop
           return if def_nodes.size <= 1
 
           names = def_nodes.map(&:method_name)
+          names_set = names.to_set
           index_of = names.each_with_index.to_h
-          edges = []
 
+          edges = []
           def_nodes.each do |def_node|
-            calls = local_calls(def_node, names)
-            calls.each do |callee|
-              # ignore recursion
-              next if callee == def_node.method_name
+            local_calls(def_node, names_set).each do |callee|
+              next if callee == def_node.method_name # self-recursion
 
               edges << [def_node.method_name, callee]
             end
           end
 
-          violation = find_violation(edges, index_of)
+          allow_recursion = cop_config.fetch("AllowedRecursion", true)
+          adj = build_adj(names, edges)
+
+          violation = first_backward_edge(edges, index_of, adj, allow_recursion)
           return unless violation
 
           caller_name, callee_name = violation
@@ -81,10 +83,8 @@ module RuboCop
             try_autocorrect(corrector, body_nodes, def_nodes, edges)
           end
 
-          # Recurse into nested scopes inside this body
-          body_nodes.each do |n|
-            analyze_scope(n) if n.class_type? || n.module_type? || n.sclass_type?
-          end
+          # Recurse into nested scopes
+          body_nodes.each { |n| analyze_scope(n) if n.class_type? || n.module_type? || n.sclass_type? }
         end
 
         def scope_body_nodes(node)
@@ -101,8 +101,7 @@ module RuboCop
           end
         end
 
-        # Collect local calls (receiver nil or self) whose method names are in +names+.
-        def local_calls(def_node, names)
+        def local_calls(def_node, names_set)
           body = def_node.body
           return [] unless body
 
@@ -112,15 +111,56 @@ module RuboCop
             next unless recv.nil? || recv&.self_type?
 
             mname = send.method_name
-            res << mname if names.include?(mname)
+            res << mname if names_set.include?(mname)
           end
           res.uniq
         end
 
-        # Returns [caller, callee] for the first backward edge, or nil.
         def find_violation(edges, index_of)
           edges.find do |caller, callee|
+            index_of.key?(caller) && index_of.key?(callee) && index_of[callee] < index_of[caller]
+          end
+        end
+
+        # New helpers for mutual recursion handling
+        def build_adj(names, edges)
+          allowed = names.to_set
+          adj = Hash.new { |h, k| h[k] = [] }
+          edges.each do |u, v|
+            next unless allowed.include?(u) && allowed.include?(v)
+            next if u == v
+
+            adj[u] << v
+          end
+          adj
+        end
+
+        def path_exists?(src, dst, adj, limit = 200)
+          return true if src == dst
+
+          visited = {}
+          q = [src]
+          steps = 0
+          until q.empty?
+            steps += 1
+            return false if steps > limit
+
+            u = q.shift
+            next if visited[u]
+
+            visited[u] = true
+            return true if u == dst
+
+            adj[u].each { |v| q << v unless visited[v] }
+          end
+          false
+        end
+
+        def first_backward_edge(edges, index_of, adj, allow_recursion)
+          edges.find do |caller, callee|
             next unless index_of.key?(caller) && index_of.key?(callee)
+            # If mutual recursion allowed and there is a path callee -> caller, skip
+            next if allow_recursion && path_exists?(callee, caller, adj)
 
             index_of[callee] < index_of[caller]
           end
