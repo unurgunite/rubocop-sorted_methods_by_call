@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = 'RuboCop extension for method sorting in AST by stack trace.'
   spec.homepage = 'https://github.com/unurgunite/rubocop-sorted_methods_by_call'
-  spec.required_ruby_version = '>= 2.5.0'
+  spec.required_ruby_version = '>= 2.7.0'
 
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'
 
