@@ -1,4 +1,4 @@
-# RubocopSortedMethodsByCall
+# RuboCop::SortedMethodsByCall
 
 ![Alt](https://repobeats.axiom.co/api/embed/7926fec94bffd7fcaa69700fb9464ed96cf69083.svg "Repobeats analytics image")
 
@@ -7,7 +7,7 @@
 **This project is not updated yet and needs some improvements in code semantics. If you able to help this project, fork
 it and make pull requests.**
 
-Welcome to the rubocop_sorted_methods_by_call gem! This repo contains main sources of project.
+Welcome to the rubocop-sorted_methods_by_call gem! This repo contains main sources of project.
 
 ## Documentation content
 
@@ -36,7 +36,7 @@ sources by declaring methods after they are called.
 
 ## Installation
 
-rubocop_sorted_methods_by_call gem is quite simple to use and install. There are two options to install it — for those
+rubocop-sorted_methods_by_call gem is quite simple to use and install. There are two options to install it — for those
 who is going to contribute into the project and for those who is going to embed gem to theirs project. See below for
 each step.
 
@@ -48,23 +48,23 @@ The manual installation includes installation via command line interface. it is 
 happens during the automatic build of the project:
 
 ```shell
-git clone https://github.com/unurgunite/rubocop_sorted_methods_by_call.git && \
-cd rubocop_sorted_methods_by_call && \
+git clone https://github.com/unurgunite/rubocop-sorted_methods_by_call.git && \
+cd rubocop-sorted_methods_by_call && \
 bundle install && \
-gem build rubocop_sorted_methods_by_call.gemspec && \
-gem install rubocop_sorted_methods_by_call-0.1.0.gem
+gem build rubocop-sorted_methods_by_call.gemspec && \
+gem install rubocop-sorted_methods_by_call-0.1.0.gem
 ```
 
 Now everything should work fine. Just type `irb`
-and `require "rubocop_sorted_methods_by_call/rubocop_sorted_methods_by_call"` to start working with the library
+and `require "rubocop-sorted_methods_by_call/rubocop-sorted_methods_by_call"` to start working with the library
 
 #### Automatic installation
 
 The automatic installation is simpler but it has at least same steps as manual installation:
 
 ```shell
-git clone https://github.com/unurgunite/rubocop_sorted_methods_by_call.git && \
-cd rubocop_sorted_methods_by_call && \
+git clone https://github.com/unurgunite/rubocop-sorted_methods_by_call.git && \
+cd rubocop-sorted_methods_by_call && \
 bin/setup
 ```
 
@@ -79,7 +79,7 @@ Gemfile or create it manually via `bundle init`:
 
 ```ruby
 # Your Gemfile
-gem 'rubocop_sorted_methods_by_call'
+gem 'rubocop-sorted_methods_by_call'
 ```
 
 And then execute:
@@ -91,12 +91,12 @@ bundle install
 Or install it yourself for non bundled projects as:
 
 ```shell
-gem install rubocop_sorted_methods_by_call
+gem install rubocop-sorted_methods_by_call
 ```
 
 ## Usage
 
-All docs are available at the separate page: https://unurgunite.github.io/rubocop_sorted_methods_by_call_docs/
+All docs are available at the separate page: https://unurgunite.github.io/rubocop-sorted_methods_by_call_docs/
 
 ### Code examples
 
@@ -116,7 +116,7 @@ end
 require "parser/current"
 
 code = Parser::CurrentRuby.parse(File.read("file.rb"))
-ast = RubocopSortedMethodsByCall::Processor.new
+ast = RuboCop::SortedMethodsByCall::Processor.new
 ast.process(code)
 ast.ordered? #=> true
 ```
@@ -137,7 +137,7 @@ end
 require "parser/current"
 
 code = Parser::CurrentRuby.parse(File.read("file.rb"))
-ast = RubocopSortedMethodsByCall::Processor.new
+ast = RuboCop::SortedMethodsByCall::Processor.new
 ast.process(code)
 ast.ordered? #=> false
 ```
@@ -171,7 +171,7 @@ requirements for common use and requirements for the development purposes.
 
 ### Common use
 
-The `rubocop_sorted_methods_by_call` gem is built on top of another gem:
+The `rubocop-sorted_methods_by_call` gem is built on top of another gem:
 
 | Dependencies  | Description                                                   |
 |---------------|---------------------------------------------------------------|
@@ -179,7 +179,7 @@ The `rubocop_sorted_methods_by_call` gem is built on top of another gem:
 
 ### Development purposes
 
-For the development purposes `rubocop_sorted_methods_by_call` gem uses:
+For the development purposes `rubocop-sorted_methods_by_call` gem uses:
 
 | Dependencies   | Description                                                                              |
 |----------------|------------------------------------------------------------------------------------------|
@@ -192,18 +192,18 @@ For the development purposes `rubocop_sorted_methods_by_call` gem uses:
 ## Project style guide
 
 To make the code base much cleaner gem has its own style guides. They are defined in a root folder of the gem in
-a [CONTRIBUTING.md](https://github.com/unurgunite/rubocop_sorted_methods_by_call/blob/master/CONTRIBUTING.md) file.
+a [CONTRIBUTING.md](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CONTRIBUTING.md) file.
 Check it for more details.
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/unurgunite/rubocop_sorted_methods_by_call.
+Bug reports and pull requests are welcome on GitHub at https://github.com/unurgunite/rubocop-sorted_methods_by_call.
 This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to
-the [code of conduct](https://github.com/unurgunite/rubocop_sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md). To
+the [code of conduct](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md). To
 contribute you should fork this project and create there new branch:
 
 ```shell
-git clone https://github.com/your-beautiful-username/rubocop_sorted_methods_by_call.git && \
+git clone https://github.com/your-beautiful-username/rubocop-sorted_methods_by_call.git && \
 git checkout -b refactor && \
 git commit -m "Affected new changes" && \
 git push origin refactor
@@ -214,17 +214,17 @@ faster the PR will be checked.
 
 ## Code of Conduct
 
-Everyone interacting in the `RubocopSortedMethodsByCall` project's codebases, issue trackers, chat rooms and mailing
+Everyone interacting in the `RuboCop::SortedMethodsByCall` project's codebases, issue trackers, chat rooms and mailing
 lists is expected
 to follow
-the [code of conduct](https://github.com/unurgunite/rubocop_sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md).
+the [code of conduct](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md).
 
 ## License
 
 The gem is available as open source under the terms of
 the [New BSD License](https://opensource.org/licenses/BSD-3-Clause). The
 copy of the license is stored in project under the `LICENSE.txt` file
-name: [copy of the License](https://github.com/unurgunite/rubocop_sorted_methods_by_call/blob/master/LICENSE.txt)
+name: [copy of the License](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/LICENSE.txt)
 
 The documentation is available as open source under the terms of
 the [CC BY-SA 4.0 License](https://creativecommons.org/licenses/by-sa/4.0/)
@@ -235,39 +235,39 @@ the [New BSD License](https://opensource.org/licenses/BSD-3-Clause)
 ![CC BY-SA 4.0](https://mirrors.creativecommons.org/presskit/buttons/88x31/svg/by-nc.svg)
 ![BSD license logo](https://upload.wikimedia.org/wikipedia/commons/4/42/License_icon-bsd-88x31.png)
 
-[1]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#overview
+[1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#overview
 
-[2]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#installation
+[2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#installation
 
-[2.1]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#build-from-source
+[2.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#build-from-source
 
-[2.1.1]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#manual-installation
+[2.1.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#manual-installation
 
-[2.1.2]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#automatic-installation
+[2.1.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#automatic-installation
 
-[2.2]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#build-via-bundler
+[2.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#build-via-bundler
 
-[3]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#usage
+[3]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#usage
 
-[3.1]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#code-examples
+[3.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#code-examples
 
-[4]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#todo
+[4]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#todo
 
-[5]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#development
+[5]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#development
 
-[6]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#requirements
+[6]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#requirements
 
-[6.1]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#common-usage
+[6.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#common-usage
 
-[6.2]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#development-purposes
+[6.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#development-purposes
 
-[7]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#project-style-guide
+[7]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#project-style-guide
 
-[8]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#contributing
+[8]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#contributing
 
-[9]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#license
+[9]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#license
 
-[10]:https://github.com/unurgunite/rubocop_sorted_methods_by_call#code-of-conduct
+[10]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#code-of-conduct
 
 [101]:https://rubygems.org/gems/parser
 

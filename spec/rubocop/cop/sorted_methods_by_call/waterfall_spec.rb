@@ -1,16 +1,16 @@
 # frozen_string_literal: true
 
-require "rubocop/rspec/support"
-require "rubocop_sorted_methods_by_call"
+require 'rubocop/rspec/support'
+require 'rubocop-sorted_methods_by_call'
 
 RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
   let(:config) do
     RuboCop::Config.new(
-      "SortedMethodsByCall/Waterfall" => { "Enabled" => true, "SafeAutoCorrect" => false }
+      'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'SafeAutoCorrect' => false }
     )
   end
 
-  it "accepts waterfall order" do
+  it 'accepts waterfall order' do
     expect_no_offenses(<<~RUBY)
       def foo
         bar
@@ -22,7 +22,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     RUBY
   end
 
-  it "registers offense when callee is defined before caller" do
+  it 'registers offense when callee is defined before caller' do
     expect_offense(<<~RUBY)
       def bar
       ^^^^^^^ Define #bar after its caller #foo (waterfall order).
@@ -34,8 +34,9 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
   end
-  context "when recursion is used" do
-    it "ignores recursive self-calls" do
+
+  context 'when recursion is used' do
+    it 'ignores recursive self-calls' do
       expect_no_offenses(<<~RUBY)
         def factorial(n)
           return 1 if n <= 1
@@ -45,8 +46,8 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     end
   end
 
-  context "with nested class scopes" do
-    it "accepts well-ordered nested classes" do
+  context 'with nested class scopes' do
+    it 'accepts well-ordered nested classes' do
       expect_no_offenses(<<~RUBY)
         class Outer
           def alpha; beta; end
@@ -61,8 +62,8 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     end
   end
 
-  context "when methods are out of order in a class" do
-    it "registers an offense" do
+  context 'when methods are out of order in a class' do
+    it 'registers an offense' do
       expect_offense(<<~RUBY)
         class Example
           def bar; helper; end
@@ -76,8 +77,8 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     end
   end
 
-  context "with modules" do
-    it "detects offenses within module scope" do
+  context 'with modules' do
+    it 'detects offenses within module scope' do
       expect_offense(<<~RUBY)
         module Util
           def bar; 1; end
@@ -90,8 +91,8 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     end
   end
 
-  context "with singleton class (class << self)" do
-    it "handles singleton method definitions" do
+  context 'with singleton class (class << self)' do
+    it 'handles singleton method definitions' do
       expect_no_offenses(<<~RUBY)
         class X
           class << self

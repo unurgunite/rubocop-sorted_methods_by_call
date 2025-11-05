@@ -1,15 +1,25 @@
+inherit_from: .rubocop_todo.yml
+
+plugins:
+  - rubocop-rake
+  - rubocop-rspec
+
 AllCops:
   TargetRubyVersion: 3.4
   NewCops: enable
 
-
-Style/StringLiterals:
-  Enabled: true
-  EnforcedStyle: double_quotes
-
-Style/StringLiteralsInInterpolation:
-  Enabled: true
-  EnforcedStyle: double_quotes
-
 Layout/LineLength:
   Max: 120
+
+Naming/FileName:
+  Exclude:
+    - 'lib/rubocop-sorted_methods_by_call.rb'
+
+Style/WhileUntilDo:
+  Enabled: false
+
+Style/RedundantFetchBlock:
+  Enabled: false
+
+Naming/MethodParameterName:
+  Enabled: false

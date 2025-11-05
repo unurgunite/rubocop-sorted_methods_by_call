@@ -24,12 +24,12 @@ module RuboCop
       #   end
       #
       # Autocorrect (unsafe, opt-in via SafeAutoCorrect: false): topologically sorts the contiguous
-      # block of defs to satisfy edges (caller → callee). Skips cycles and non-contiguous groups.
-      class Waterfall < ::RuboCop::Cop::Base
+      # block of defs to satisfy edges (caller -> callee). Skips cycles and non-contiguous groups.
+      class Waterfall < ::RuboCop::Cop::Base # rubocop:disable Metrics/ClassLength
         include ::RuboCop::Cop::RangeHelp
         extend ::RuboCop::Cop::AutoCorrector
 
-        MSG = "Define %<callee>s after its caller %<caller>s (waterfall order)."
+        MSG = 'Define %<callee>s after its caller %<caller>s (waterfall order).'
 
         def on_begin(node)
           analyze_scope(node)
@@ -53,7 +53,7 @@ module RuboCop
           body_nodes = scope_body_nodes(scope_node)
           return if body_nodes.empty?
 
-          def_nodes = body_nodes.select { |n| n.def_type? || n.defs_type? }
+          def_nodes = body_nodes.select { |n| %i[def defs].include?(n.type) }
           return if def_nodes.size <= 1
 
           names = def_nodes.map(&:method_name)
@@ -69,7 +69,7 @@ module RuboCop
             end
           end
 
-          allow_recursion = cop_config.fetch("AllowedRecursion", true)
+          allow_recursion = cop_config.fetch('AllowedRecursion') { true }
           adj = build_adj(names, edges)
 
           violation = first_backward_edge(edges, index_of, adj, allow_recursion)
@@ -166,26 +166,127 @@ module RuboCop
           end
         end
 
-        # Unsafe autocorrect: reorder a contiguous def block if possible.
+        # Unsafe autocorrect: reorder a contiguous def block if possible,
+        # respecting visibility modifiers like private/protected.
         def try_autocorrect(corrector, body_nodes, def_nodes, edges)
-          return unless cop_config.fetch("SafeAutoCorrect", false) # require explicit opt-in
+          # Group method definitions into visibility sections
+          sections = extract_visibility_sections(body_nodes)
 
-          # Only autocorrect when defs are contiguous within the body
-          first_idx = body_nodes.index(def_nodes.first)
-          last_idx = body_nodes.index(def_nodes.last)
-          return unless first_idx && last_idx
-          return unless body_nodes[first_idx..last_idx].all? { |n| n.def_type? || n.defs_type? }
+          # Find the section that contains our violating methods
+          target_section = sections.find do |section|
+            section_def_names = section[:defs].to_set(&:method_name)
+            # Check if violation involves methods in this section
+            caller_name, callee_name = first_backward_edge(
+              edges,
+              def_nodes.map(&:method_name).each_with_index.to_h,
+              build_adj(def_nodes.map(&:method_name), edges),
+              cop_config.fetch('AllowedRecursion') { true }
+            )
+            caller_name && callee_name &&
+              section_def_names.include?(caller_name) &&
+              section_def_names.include?(callee_name)
+          end
 
-          names = def_nodes.map(&:method_name)
+          return unless target_section[:defs]&.size&.> 1
+
+          # Apply topological sort only within this visibility section
+          defs = target_section[:defs]
+          names = defs.map(&:method_name)
           idx_of = names.each_with_index.to_h
-          sorted_names = topo_sort(names, edges, idx_of)
-          return unless sorted_names # cycle detected
 
-          # Replace the whole block between first..last with the new order
-          region = range_between(def_nodes.first.source_range.begin_pos, def_nodes.last.source_range.end_pos)
-          name_to_node = def_nodes.each_with_object({}) { |d, h| h[d.method_name] = d }
-          pieces = sorted_names.map { |n| name_to_node[n].source }
-          corrector.replace(region, pieces.join("\n\n"))
+          # Filter edges to only those within this section
+          section_names = names.to_set
+          section_edges = edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
+
+          sorted_names = topo_sort(names, section_edges, idx_of)
+          return unless sorted_names
+
+          # Reconstruct the section with visibility modifier + sorted defs
+          visibility_source = target_section[:visibility]&.source || ''
+          sorted_def_sources = sorted_names.map { |name| defs.find { |d| d.method_name == name }.source }
+
+          new_content = if visibility_source.empty?
+                          sorted_def_sources.join("\n\n")
+                        else
+                          "#{visibility_source}\n#{sorted_def_sources.join("\n\n")}"
+                        end
+
+          # Replace the entire section range
+          region = range_between(
+            target_section[:start_pos],
+            target_section[:end_pos]
+          )
+          corrector.replace(region, new_content)
+        end
+
+        # Extract sections of method definitions grouped by visibility modifiers
+        def extract_visibility_sections(body_nodes)
+          sections = []
+          current_visibility = nil
+          current_defs = []
+          section_start = nil
+
+          body_nodes.each_with_index do |node, idx|
+            case node.type
+            when :def, :defs
+              current_defs << node
+              section_start ||= node.source_range.begin_pos
+            when :send
+              # Check if this is a visibility modifier (private/protected/public)
+              if node.receiver.nil? && %i[private protected public].include?(node.method_name) && node.arguments.empty?
+                # End current section if it has defs
+                unless current_defs.empty?
+                  sections << {
+                    visibility: current_visibility,
+                    defs: current_defs.dup,
+                    start_pos: section_start,
+                    end_pos: body_nodes[idx - 1].source_range.end_pos
+                  }
+                  current_defs = []
+                  section_start = nil
+                end
+                current_visibility = node
+              else
+                # Non-visibility send - breaks contiguity
+                unless current_defs.empty?
+                  sections << {
+                    visibility: current_visibility,
+                    defs: current_defs.dup,
+                    start_pos: section_start,
+                    end_pos: body_nodes[idx - 1].source_range.end_pos
+                  }
+                  current_defs = []
+                  section_start = nil
+                  current_visibility = nil
+                end
+              end
+            else
+              # Any other node type breaks contiguity
+              unless current_defs.empty?
+                sections << {
+                  visibility: current_visibility,
+                  defs: current_defs.dup,
+                  start_pos: section_start,
+                  end_pos: body_nodes[idx - 1].source_range.end_pos
+                }
+                current_defs = []
+                section_start = nil
+                current_visibility = nil
+              end
+            end
+          end
+
+          # Handle trailing defs
+          unless current_defs.empty?
+            sections << {
+              visibility: current_visibility,
+              defs: current_defs,
+              start_pos: section_start,
+              end_pos: current_defs.last.source_range.end_pos
+            }
+          end
+
+          sections
         end
 
         # Topological sort with stable tie-breaking by current order.
