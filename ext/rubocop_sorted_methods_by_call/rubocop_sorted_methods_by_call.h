@@ -1,6 +1,0 @@
-#ifndef RUBOCOP_SORTED_METHODS_BY_CALL_H
-#define RUBOCOP_SORTED_METHODS_BY_CALL_H 1
-
-#include "ruby.h"
-
-#endif /* RUBOCOP_SORTED_METHODS_BY_CALL_H */

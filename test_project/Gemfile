@@ -1,0 +1,5 @@
+# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+gem 'rubocop-sorted_methods_by_call', path: '../rubocop-sorted_methods_by_call'

@@ -1,0 +1,13 @@
+plugins:
+  - rubocop-sorted_methods_by_call
+
+inherit_from: ../.rubocop.yml
+
+SortedMethodsByCall/Waterfall:
+  Enabled: true
+
+AllCops:
+  Exclude:
+    - 'rubocop-sorted_methods_by_call.gemspec'
+    - 'Gemfile'
+    - 'Gemfile.lock'
