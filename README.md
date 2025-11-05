@@ -1,282 +1,222 @@
 # RuboCop::SortedMethodsByCall
 
-![Alt](https://repobeats.axiom.co/api/embed/7926fec94bffd7fcaa69700fb9464ed96cf69083.svg "Repobeats analytics image")
+![Repobeats](https://repobeats.axiom.co/api/embed/7926fec94bffd7fcaa69700fb9464ed96cf69083.svg "Repobeats analytics image")
+[![CI](https://github.com/unurgunite/rubocop-sorted_methods_by_call/actions/workflows/ci.yml/badge.svg)](https://github.com/unurgunite/rubocop-sorted_methods_by_call/actions)
+[![Gem Version](https://badge.fury.io/rb/rubocop-sorted_methods_by_call.svg)](https://rubygems.org/gems/rubocop-sorted_methods_by_call)
 
-# ! WARNING !
+* [RuboCop::SortedMethodsByCall](#rubocopsortedmethodsbycall)
+    * [Features](#features)
+    * [Installation](#installation)
+    * [Configuration](#configuration)
+        * [Basic Setup](#basic-setup)
+        * [Configuration Options](#configuration-options)
+    * [Usage Examples](#usage-examples)
+        * [Good Code (waterfall order)](#good-code-waterfall-order)
+        * [Bad Code (violates waterfall order)](#bad-code-violates-waterfall-order)
+        * [Autocorrection](#autocorrection)
+    * [Testing](#testing)
+    * [Development](#development)
+        * [Available Commands](#available-commands)
+        * [Release Process](#release-process)
+    * [Requirements](#requirements)
+    * [Contributing](#contributing)
+    * [License](#license)
+    * [Code of Conduct](#code-of-conduct)
 
-**This project is not updated yet and needs some improvements in code semantics. If you able to help this project, fork
-it and make pull requests.**
+**Enforces "waterfall" method ordering**: define methods *after* any method that calls them within the same scope.
 
-Welcome to the rubocop-sorted_methods_by_call gem! This repo contains main sources of project.
+## Features
 
-## Documentation content
-
-1. [Overview][1]
-2. [Installation][2]
-    1. [Build from source][2.1]
-        1. [Manual installation][2.1.1]
-        2. [Automatic installation][2.1.2]
-    2. [Build via bundler][2.2]
-3. [Usage][3]
-    1. [Code examples][3.1]
-4. [Todo][4]
-5. [Development][5]
-6. [Requirements][6]
-    1. [Common usage][6.1]
-    2. [Development purposes][6.2]
-7. [Project style guide][7]
-8. [Contributing][8]
-9. [License][9]
-10. [Code of Conduct][10]
-
-## Overview
-
-This gem analyze Ruby AST and check if code was written according to the "waterfall" feature which give flexibility to
-sources by declaring methods after they are called.
+- **Waterfall ordering enforcement**: Caller methods must be defined before their callees
+- **Smart visibility handling**: Respects `private`/`protected`/`public` sections
+- **Safe mutual recursion**: Handles recursive method calls gracefully
+- **Autocorrection support**: Automatically reorders methods (opt-in with `-A`)
+- **Full RuboCop integration**: Works seamlessly with modern RuboCop plugin system
+- **Comprehensive scope support**: Classes, modules, singleton classes, and top-level
 
 ## Installation
 
-rubocop-sorted_methods_by_call gem is quite simple to use and install. There are two options to install it — for those
-who is going to contribute into the project and for those who is going to embed gem to theirs project. See below for
-each step.
-
-### Build from source
-
-#### Manual installation
-
-The manual installation includes installation via command line interface. it is practically no different from what
-happens during the automatic build of the project:
-
-```shell
-git clone https://github.com/unurgunite/rubocop-sorted_methods_by_call.git && \
-cd rubocop-sorted_methods_by_call && \
-bundle install && \
-gem build rubocop-sorted_methods_by_call.gemspec && \
-gem install rubocop-sorted_methods_by_call-0.1.0.gem
-```
-
-Now everything should work fine. Just type `irb`
-and `require "rubocop-sorted_methods_by_call/rubocop-sorted_methods_by_call"` to start working with the library
-
-#### Automatic installation
-
-The automatic installation is simpler but it has at least same steps as manual installation:
-
-```shell
-git clone https://github.com/unurgunite/rubocop-sorted_methods_by_call.git && \
-cd rubocop-sorted_methods_by_call && \
-bin/setup
-```
-
-If you see `irb` interface, then everything works fine. The main goal of automatic installation is that you do not need
-to create your own script to simplify project build and clean up the shell history. Note: you do not need to require
-projects file after the automatic installation. See `bin/setup` file for clarity of the statement
-
-### Build via bundler
-
-This documentation point is close to those who need to embed the library in their project. Just place this gem to your
-Gemfile or create it manually via `bundle init`:
+Add this line to your application's Gemfile:
 
 ```ruby
-# Your Gemfile
 gem 'rubocop-sorted_methods_by_call'
 ```
 
 And then execute:
 
-```shell
+```bash
 bundle install
 ```
 
-Or install it yourself for non bundled projects as:
+Or install it yourself:
 
-```shell
+```bash
 gem install rubocop-sorted_methods_by_call
 ```
 
-## Usage
+## Configuration
 
-All docs are available at the separate page: https://unurgunite.github.io/rubocop-sorted_methods_by_call_docs/
+### Basic Setup
 
-### Code examples
+Add to your `.rubocop.yml`:
 
-Positive case:
+```yaml
+plugins:
+  - rubocop-sorted_methods_by_call
 
-```ruby
-# file.rb
-def foo
-  bar
-end
-
-def bar
-  123
-end
-
-# main.rb
-require "parser/current"
-
-code = Parser::CurrentRuby.parse(File.read("file.rb"))
-ast = RuboCop::SortedMethodsByCall::Processor.new
-ast.process(code)
-ast.ordered? #=> true
+SortedMethodsByCall/Waterfall:
+  Enabled: true
 ```
 
-Negative case:
+### Configuration Options
 
-```ruby
-# file.rb
-def bar
-  123
-end
-
-def foo
-  bar
-end
-
-# main.rb
-require "parser/current"
-
-code = Parser::CurrentRuby.parse(File.read("file.rb"))
-ast = RuboCop::SortedMethodsByCall::Processor.new
-ast.process(code)
-ast.ordered? #=> false
+```yaml
+SortedMethodsByCall/Waterfall:
+  Enabled: true
+  SafeAutoCorrect: false          # Autocorrection requires -A flag
+  AllowedRecursion: true          # Allow mutual recursion (default: true)
 ```
 
-## TODO
+## Usage Examples
 
-- [ ] Add recursion support
-- [ ] Add classes support
-- [ ] Add struct support
-- [ ] Add modules support
-- [ ] Add nested structures support
-- [ ] Add standalone method support (without invoking another methods inside)
-- [ ] Add detection for method overriding (namespace pollutions)
-- [ ] Support for method calling inside of params
-- [ ] Refactor code base
-- [ ] Make more examples for specs
+### Good Code (waterfall order)
+
+```ruby
+
+class Service
+  def call
+    do_smth
+  end
+
+  private
+
+  def do_smth
+    well
+  end
+
+  def well
+    123
+  end
+end
+```
+
+### Bad Code (violates waterfall order)
+
+```ruby
+
+class Service
+  def call
+    do_smth
+  end
+
+  private
+
+  def well # ❌ Offense: Define #well after its caller #do_smth
+    123
+  end
+
+  def do_smth
+    well
+  end
+end
+```
+
+### Autocorrection
+
+Run with unsafe autocorrection to automatically fix violations:
+
+```bash
+bundle exec rubocop -A
+```
+
+This will reorder the methods while preserving comments and visibility modifiers:
+
+```ruby
+
+class Service
+  def call
+    do_smth
+  end
+
+  private
+
+  def do_smth
+    well
+  end
+
+  def well
+    123
+  end
+end
+```
+
+## Testing
+
+Run the test suite:
+
+```bash
+bundle exec rspec
+```
+
+Run RuboCop on the gem itself:
+
+```bash
+bundle exec rubocop
+bundle exec rubocop --config .rubocop.test.yml lib/ -A
+```
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can
-also run `bin/console` for an interactive prompt that will allow you to experiment.
+After checking out the repo, run:
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the
-version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version,
-push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+```bash
+bin/setup
+```
+
+This will install dependencies and start an interactive console.
+
+### Available Commands
+
+- `bin/console` - Interactive development console
+- `bin/setup` - Install dependencies and build gem
+- `bundle exec rake` - Run tests and linting
+
+### Release Process
+
+1. Update version in `lib/rubocop/sorted_methods_by_call/version.rb`
+2. Create and push a git tag: `git tag v0.1.0 && git push origin v0.1.0`
+3. GitHub Actions will automatically:
+    - Build the gem
+    - Publish to RubyGems.org
+    - Create a GitHub release
 
 ## Requirements
 
-This section will show dependencies which are used in the project. This section splits in two other sections —
-requirements for common use and requirements for the development purposes.
-
-### Common use
-
-The `rubocop-sorted_methods_by_call` gem is built on top of another gem:
-
-| Dependencies  | Description                                                   |
-|---------------|---------------------------------------------------------------|
-| [Parser][101] | Parser is used to build AST for future structure identifying. |
-
-### Development purposes
-
-For the development purposes `rubocop-sorted_methods_by_call` gem uses:
-
-| Dependencies   | Description                                                                              |
-|----------------|------------------------------------------------------------------------------------------|
-| [RSpec][201]   | The RSpec gem is used for test which are located in a separate folder under `spec` name. |
-| [RuboCop][202] | The RuboCop gem is used for code formatting.                                             |
-| [Rake][203]    | The Rake gem is used for building tasks as generating documentation.                     |                                                                                             |
-| [YARD][204]    | The YARD gem is used for the documentation.                                              |
-| [Parser][205]  | The Parser gem is used for building AST.                                                 |
-
-## Project style guide
-
-To make the code base much cleaner gem has its own style guides. They are defined in a root folder of the gem in
-a [CONTRIBUTING.md](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CONTRIBUTING.md) file.
-Check it for more details.
+- **Ruby**: >= 2.7
+- **RuboCop**: >= 1.72.0 (required for plugin system)
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/unurgunite/rubocop-sorted_methods_by_call.
-This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to
-the [code of conduct](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md). To
-contribute you should fork this project and create there new branch:
+Bug reports and pull requests are welcome! Please follow these guidelines:
 
-```shell
-git clone https://github.com/your-beautiful-username/rubocop-sorted_methods_by_call.git && \
-git checkout -b refactor && \
-git commit -m "Affected new changes" && \
-git push origin refactor
-```
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -am 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a pull request
 
-And then make new pull request with additional notes of what you have done. The better the changes are scheduled, the
-faster the PR will be checked.
-
-## Code of Conduct
-
-Everyone interacting in the `RuboCop::SortedMethodsByCall` project's codebases, issue trackers, chat rooms and mailing
-lists is expected
-to follow
-the [code of conduct](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/CODE_OF_CONDUCT.md).
+Please ensure your code passes all tests and follows the existing style.
 
 ## License
 
 The gem is available as open source under the terms of
-the [New BSD License](https://opensource.org/licenses/BSD-3-Clause). The
-copy of the license is stored in project under the `LICENSE.txt` file
-name: [copy of the License](https://github.com/unurgunite/rubocop-sorted_methods_by_call/blob/master/LICENSE.txt)
+the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
 
-The documentation is available as open source under the terms of
-the [CC BY-SA 4.0 License](https://creativecommons.org/licenses/by-sa/4.0/)
+## Code of Conduct
 
-The other libs are available as open source under the terms of
-the [New BSD License](https://opensource.org/licenses/BSD-3-Clause)
+Everyone interacting with this project is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-![CC BY-SA 4.0](https://mirrors.creativecommons.org/presskit/buttons/88x31/svg/by-nc.svg)
-![BSD license logo](https://upload.wikimedia.org/wikipedia/commons/4/42/License_icon-bsd-88x31.png)
+---
 
-[1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#overview
-
-[2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#installation
-
-[2.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#build-from-source
-
-[2.1.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#manual-installation
-
-[2.1.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#automatic-installation
-
-[2.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#build-via-bundler
-
-[3]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#usage
-
-[3.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#code-examples
-
-[4]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#todo
-
-[5]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#development
-
-[6]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#requirements
-
-[6.1]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#common-usage
-
-[6.2]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#development-purposes
-
-[7]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#project-style-guide
-
-[8]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#contributing
-
-[9]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#license
-
-[10]:https://github.com/unurgunite/rubocop-sorted_methods_by_call#code-of-conduct
-
-[101]:https://rubygems.org/gems/parser
-
-[201]:https://rubygems.org/gems/rspec
-
-[202]:https://rubygems.org/gems/rubocop
-
-[203]:https://rubygems.org/gems/rake
-
-[204]:https://rubygems.org/gems/yard
-
-[205]:https://rubygems.org/gems/parser
+> **Note**: This gem is now stable and ready for production use! The "waterfall" ordering pattern helps create more
+> readable code by ensuring that methods are defined in the order they're conceptually needed.
