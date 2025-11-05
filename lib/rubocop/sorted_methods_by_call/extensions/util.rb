@@ -18,7 +18,7 @@ module RuboCop
       #   RuboCop::SortedMethodsByCall::Util.deep_merge(base, other)
       #   #=> { main: [:abc], class_T: [:hi, :h1] }
       #
-      # @param [Hash] hash  The base hash to merge from.
+      # @param [Hash] h  The base hash to merge from.
       # @param [Hash] other The hash to merge into +hash+.
       # @return [Hash] A new hash with accumulated values per key.
       # @see Hash#merge

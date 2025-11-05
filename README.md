@@ -20,6 +20,7 @@
         * [Release Process](#release-process)
     * [Requirements](#requirements)
     * [Contributing](#contributing)
+    * [Documentation](#documentation)
     * [License](#license)
     * [Code of Conduct](#code-of-conduct)
 
@@ -82,7 +83,6 @@ SortedMethodsByCall/Waterfall:
 ### Good Code (waterfall order)
 
 ```ruby
-
 class Service
   def call
     do_smth
@@ -103,7 +103,6 @@ end
 ### Bad Code (violates waterfall order)
 
 ```ruby
-
 class Service
   def call
     do_smth
@@ -132,7 +131,6 @@ bundle exec rubocop -A
 This will reorder the methods while preserving comments and visibility modifiers:
 
 ```ruby
-
 class Service
   def call
     do_smth
@@ -206,6 +204,11 @@ Bug reports and pull requests are welcome! Please follow these guidelines:
 5. Open a pull request
 
 Please ensure your code passes all tests and follows the existing style.
+
+## Documentation
+
+Code is covered with YARD docs, you can access online docs
+at https://unurgunite.github.io/rubocop-sorted_methods_by_call_docs/
 
 ## License
 
