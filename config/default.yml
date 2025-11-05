@@ -1,0 +1,7 @@
+# Default configuration for rubocop_sorted_methods_by_call
+SortedMethodsByCall/Waterfall:
+  Description: "Enforces \"waterfall\" ordering: define methods after the methods that call them."
+  Enabled: false
+  VersionAdded: "0.1.0"
+  SafeAutoCorrect: false
+  AllowedRecursion: true

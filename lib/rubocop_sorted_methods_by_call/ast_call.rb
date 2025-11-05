@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "compare"
+
 module RubocopSortedMethodsByCall
   # The +Processor+ class is corresponding for analyzing method
   # definition/call trace.
@@ -137,7 +139,7 @@ module RubocopSortedMethodsByCall
     #
     # @return [TrueClass, FalseClass]
     def ordered?
-      @methods_list.eql?(@trace)
+      RubocopSortedMethodsByCall::Compare.hashes_ordered_equal?(@methods_list, @trace)
     end
   end
 end
