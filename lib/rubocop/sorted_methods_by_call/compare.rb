@@ -4,10 +4,38 @@ module RuboCop
   module SortedMethodsByCall
     # +RuboCop::SortedMethodsByCall::Compare+ provides helpers to compare
     # definition orders and call orders using “ordered subsequence” semantics.
-    # It’s used by the validator/cops to check that called methods appear in
-    # the same relative order as they are defined (not necessarily contiguously).
+    # It’s used by the cop to check that called methods appear in the same
+    # relative order as they are defined (not necessarily contiguously).
     module Compare
       class << self
+        # +RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(actual, expected)+ -> Bool
+        #
+        # For each scope key, checks that every call in +expected[k]+ exists in +actual[k]+ and
+        # appears in the same relative order (i.e., +expected[k]+ is a subsequence of +actual[k]+).
+        # Returns false if a call is unknown (not present in +actual[k]+) or out of order.
+        #
+        # @example
+        #   defs  = { main: %i[abc foo bar a hello] }
+        #   calls = { main: %i[foo bar hello] }
+        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls) #=> true
+        #
+        #   calls2 = { main: %i[bar foo] }
+        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls2) #=> false
+        #
+        # @param [Hash{Object=>Array<Symbol>}] actual   Actual definitions per scope.
+        # @param [Hash{Object=>Array<Symbol>}] expected Expected calls per scope.
+        # @return [Bool] true if for every scope +k+, +expected[k]+ is a subsequence of +actual[k]+
+        #   and contains no unknown methods.
+        def hashes_ordered_equal?(actual, expected)
+          return false unless actual.is_a?(Hash) && expected.is_a?(Hash)
+
+          (actual.keys | expected.keys).all? do |k|
+            defs = Array(actual[k])
+            calls = Array(expected[k])
+            (calls - defs).empty? && subsequence?(defs, calls)
+          end
+        end
+
         # +RuboCop::SortedMethodsByCall::Compare.subsequence?(arr, sub)+ -> Bool
         #
         # Returns true if +sub+ is a subsequence of +arr+ (order preserved),
@@ -38,34 +66,6 @@ module RuboCop
             return false unless found
           end
           true
-        end
-
-        # +RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(a, b)+ -> Bool
-        #
-        # For each scope key, checks that every call in +b[k]+ exists in +a[k]+ and
-        # appears in the same relative order (i.e., +b[k]+ is a subsequence of +a[k]+).
-        # Returns false if a call is unknown (not present in +a[k]+) or out of order.
-        #
-        # @example
-        #   defs  = { main: %i[abc foo bar a hello] }
-        #   calls = { main: %i[foo bar hello] }
-        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls) #=> true
-        #
-        #   calls2 = { main: %i[bar foo] }
-        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls2) #=> false
-        #
-        # @param [Hash{Object=>Array<Symbol>}] actual Actual definitions per scope.
-        # @param [Hash{Object=>Array<Symbol>}] expected Expected calls per scope.
-        # @return [Bool] true if for every scope +k+, +b[k]+ is a subsequence of +a[k]+
-        #   and contains no unknown methods.
-        def hashes_ordered_equal?(actual, expected)
-          return false unless actual.is_a?(Hash) && expected.is_a?(Hash)
-
-          (actual.keys | expected.keys).all? do |k|
-            defs = Array(actual[k])
-            calls = Array(expected[k])
-            (calls - defs).empty? && subsequence?(defs, calls)
-          end
         end
       end
     end

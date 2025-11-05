@@ -103,4 +103,137 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       RUBY
     end
   end
+
+  it 'reorders methods and preserves leading doc comments in a simple section' do
+    expect_offense(<<~RUBY)
+      class S
+        # Doc for well
+        # does something
+        def well
+        ^^^^^^^^ Define #well after its caller #do_smth (waterfall order).
+          1
+        end
+
+        # Doc for do_smth
+        def do_smth
+          well
+        end
+      end
+    RUBY
+
+    expect_correction(<<~RUBY)
+      class S
+        # Doc for do_smth
+        def do_smth
+          well
+        end
+
+        # Doc for well
+        # does something
+        def well
+          1
+        end
+      end
+    RUBY
+  end
+
+  it 'does not cross visibility sections (no autocorrect across private/public)' do
+    source = <<~RUBY
+      class T
+        private
+
+        def callee
+          1
+        end
+
+        public
+
+        def caller
+          callee
+        end
+      end
+    RUBY
+
+    expect_offense(<<~RUBY, source: source)
+      class T
+        private
+
+        def callee
+        ^^^^^^^^^^ Define #callee after its caller #caller (waterfall order).
+          1
+        end
+
+        public
+
+        def caller
+          callee
+        end
+      end
+    RUBY
+
+    # No changes expected because caller/callee are in different sections
+    expect_no_corrections
+  end
+
+  it "reorders within a private section and keeps the single visibility line" do
+    expect_offense(<<~RUBY)
+      class S
+        private
+
+        def b
+        ^^^^^ Define #b after its caller #a (waterfall order).
+          1
+        end
+
+        def a
+          b
+        end
+      end
+    RUBY
+
+    expect_correction(<<~RUBY)
+      class S
+        private
+
+        def a
+          b
+        end
+
+        def b
+          1
+        end
+      end
+    RUBY
+  end
+
+  it "reorders within a protected section and keeps the single visibility line" do
+    expect_offense(<<~RUBY)
+      class S
+        protected
+
+        def b
+        ^^^^^ Define #b after its caller #a (waterfall order).
+          1
+        end
+
+        def a
+          b
+        end
+      end
+    RUBY
+
+    expect_correction(<<~RUBY)
+      class S
+        protected
+
+        def a
+          b
+        end
+
+        def b
+          1
+        end
+      end
+    RUBY
+  end
 end

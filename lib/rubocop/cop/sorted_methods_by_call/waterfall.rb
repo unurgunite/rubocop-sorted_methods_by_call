@@ -186,6 +186,91 @@ module RuboCop
           end
         end
 
+        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#try_autocorrect+ -> void
+        #
+        # UNSAFE: Reorders method definitions inside the target visibility section only
+        # (does not cross private/protected/public boundaries). Skips if defs are not
+        # contiguous within the section or if a cycle prevents a consistent topo order.
+        #
+        # @param [RuboCop::Cop::Corrector] corrector
+        # @param [Array<RuboCop::AST::Node>] body_nodes
+        # @param [Array<RuboCop::AST::Node>] def_nodes
+        # @param [Array<Array(Symbol, Symbol)>] edges
+        # @return [void]
+        #
+        # @note Applied only when user asked for autocorrections; with SafeAutoCorrect: false, this runs under -A.
+        # @note Also preserves contiguous leading doc comments above each method.
+        def try_autocorrect(corrector, body_nodes, def_nodes, edges)
+          # Group method definitions into visibility sections
+          sections = extract_visibility_sections(body_nodes)
+
+          # Find the section that contains our violating methods
+          caller_name, callee_name = first_backward_edge(
+            edges,
+            def_nodes.map(&:method_name).each_with_index.to_h,
+            build_adj(def_nodes.map(&:method_name), edges),
+            cop_config.fetch('AllowedRecursion') { true }
+          )
+
+          # No violation -> nothing to do
+          return unless caller_name && callee_name
+
+          #            Find a visibility section that contains both names
+          target_section = sections.find do |section|
+            names_in_section = section[:defs].to_set(&:method_name)
+            names_in_section.include?(caller_name) && names_in_section.include?(callee_name)
+          end
+
+          # If violation spans multiple sections, skip autocorrect
+          return unless target_section
+
+          defs = target_section[:defs]
+          return unless defs.size > 1
+
+          # Apply topological sort only within this visibility section
+          defs = target_section[:defs]
+          names = defs.map(&:method_name)
+          idx_of = names.each_with_index.to_h
+
+          # Filter edges to only those within this section
+          # Filter edges to only those within this section
+          section_names = names.to_set
+          section_edges = edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
+
+          sorted_names = topo_sort(names, section_edges, idx_of)
+          return unless sorted_names
+
+          # Capture each def with its leading contiguous comment block
+          ranges_by_name = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
+          sorted_def_sources = sorted_names.map { |name| ranges_by_name[name].source }
+
+          # Reconstruct the section: keep the visibility modifier (if any) above the first def
+          visibility_node   = target_section[:visibility]
+          visibility_source = visibility_node&.source.to_s
+
+          new_content = if visibility_source.empty?
+                          sorted_def_sources.join("\n\n")
+                        else
+                          "#{visibility_source}\n\n#{sorted_def_sources.join("\n\n")}"
+                        end
+
+          # Expand the replaced region:
+          # - if a visibility node exists, start from its begin_pos (so we replace it)
+          # - otherwise, start from the earliest leading doc-comment of the defs
+          section_begin =
+            if visibility_node
+              visibility_node.source_range.begin_pos
+            else
+              defs.map { |d| range_with_leading_comments(d).begin_pos }.min
+            end
+
+          # Always end at the end of the last def
+          section_end = defs.last.source_range.end_pos
+
+          region = Parser::Source::Range.new(processed_source.buffer, section_begin, section_end)
+          corrector.replace(region, new_content)
+        end
+
         # +RuboCop::Cop::SortedMethodsByCall::Waterfall#build_adj+ -> Hash{Symbol=>Array<Symbol>}
         #
         # Builds an adjacency list for edges restricted to known names.
@@ -203,6 +288,26 @@ module RuboCop
             adj[u] << v
           end
           adj
+        end
+
+        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#first_backward_edge+ -> [Symbol, Symbol], nil
+        #
+        # Returns the first backward edge found, optionally skipping mutual recursion
+        # if so configured.
+        #
+        # @param [Array<Array(Symbol, Symbol)>] edges
+        # @param [Hash{Symbol=>Integer}] index_of
+        # @param [Hash{Symbol=>Array<Symbol>}] adj
+        # @param [Boolean] allow_recursion whether to ignore cycles
+        # @return [[Symbol, Symbol], nil]
+        def first_backward_edge(edges, index_of, adj, allow_recursion)
+          edges.find do |caller, callee|
+            next unless index_of.key?(caller) && index_of.key?(callee)
+            # If mutual recursion allowed and there is a path callee -> caller, skip
+            next if allow_recursion && path_exists?(callee, caller, adj)
+
+            index_of[callee] < index_of[caller]
+          end
         end
 
         # +RuboCop::Cop::SortedMethodsByCall::Waterfall#path_exists?+ -> Boolean
@@ -233,90 +338,6 @@ module RuboCop
             adj[u].each { |v| q << v unless visited[v] }
           end
           false
-        end
-
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#first_backward_edge+ -> [Symbol, Symbol], nil
-        #
-        # Returns the first backward edge found, optionally skipping mutual recursion
-        # if so configured.
-        #
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @param [Hash{Symbol=>Integer}] index_of
-        # @param [Hash{Symbol=>Array<Symbol>}] adj
-        # @param [Boolean] allow_recursion whether to ignore cycles
-        # @return [[Symbol, Symbol], nil]
-        def first_backward_edge(edges, index_of, adj, allow_recursion)
-          edges.find do |caller, callee|
-            next unless index_of.key?(caller) && index_of.key?(callee)
-            # If mutual recursion allowed and there is a path callee -> caller, skip
-            next if allow_recursion && path_exists?(callee, caller, adj)
-
-            index_of[callee] < index_of[caller]
-          end
-        end
-
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#try_autocorrect+ -> void
-        #
-        # UNSAFE: Reorders method definitions inside the target visibility section only
-        # (does not cross private/protected/public boundaries). Skips if defs are not
-        # contiguous within the section or if a cycle prevents a consistent topo order.
-        #
-        # @param [RuboCop::Cop::Corrector] corrector
-        # @param [Array<RuboCop::AST::Node>] body_nodes
-        # @param [Array<RuboCop::AST::Node>] def_nodes
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @return [void]
-        #
-        # @note Applied only when user asked for autocorrections; with SafeAutoCorrect: false, this runs under -A.
-        def try_autocorrect(corrector, body_nodes, def_nodes, edges)
-          # Group method definitions into visibility sections
-          sections = extract_visibility_sections(body_nodes)
-
-          # Find the section that contains our violating methods
-          target_section = sections.find do |section|
-            section_def_names = section[:defs].to_set(&:method_name)
-            # Check if violation involves methods in this section
-            caller_name, callee_name = first_backward_edge(
-              edges,
-              def_nodes.map(&:method_name).each_with_index.to_h,
-              build_adj(def_nodes.map(&:method_name), edges),
-              cop_config.fetch('AllowedRecursion') { true }
-            )
-            caller_name && callee_name &&
-              section_def_names.include?(caller_name) &&
-              section_def_names.include?(callee_name)
-          end
-
-          return unless target_section[:defs]&.size&.> 1
-
-          # Apply topological sort only within this visibility section
-          defs = target_section[:defs]
-          names = defs.map(&:method_name)
-          idx_of = names.each_with_index.to_h
-
-          # Filter edges to only those within this section
-          section_names = names.to_set
-          section_edges = edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
-
-          sorted_names = topo_sort(names, section_edges, idx_of)
-          return unless sorted_names
-
-          # Reconstruct the section with visibility modifier + sorted defs
-          visibility_source = target_section[:visibility]&.source || ''
-          sorted_def_sources = sorted_names.map { |name| defs.find { |d| d.method_name == name }.source }
-
-          new_content = if visibility_source.empty?
-                          sorted_def_sources.join("\n\n")
-                        else
-                          "#{visibility_source}\n#{sorted_def_sources.join("\n\n")}"
-                        end
-
-          # Replace the entire section range
-          region = range_between(
-            target_section[:start_pos],
-            target_section[:end_pos]
-          )
-          corrector.replace(region, new_content)
         end
 
         # +RuboCop::Cop::SortedMethodsByCall::Waterfall#extract_visibility_sections+ -> Array<Hash>
@@ -437,6 +458,32 @@ module RuboCop
           return nil unless result.size == names.size
 
           result
+        end
+
+        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#range_with_leading_comments+ -> Parser::Source::Range
+        #
+        # Returns a range that starts at the first contiguous comment line immediately
+        # above the def/defs node, and ends at the end of the def. This preserves
+        # YARD/RDoc doc comments when methods are moved during autocorrect.
+        #
+        # @param [RuboCop::AST::Node] node The def/defs node.
+        # @return [Parser::Source::Range] Range covering leading comments + method body.
+        def range_with_leading_comments(node)
+          buffer = processed_source.buffer
+          expr   = node.source_range
+
+          start_line = expr.line
+          lineno = start_line - 1
+          while lineno >= 1
+            line = buffer.source_line(lineno)
+            break unless line =~ /\A\s*#/
+
+            start_line = lineno
+            lineno -= 1
+          end
+
+          start_pos = buffer.line_range(start_line).begin_pos
+          Parser::Source::Range.new(buffer, start_pos, expr.end_pos)
         end
       end
     end
