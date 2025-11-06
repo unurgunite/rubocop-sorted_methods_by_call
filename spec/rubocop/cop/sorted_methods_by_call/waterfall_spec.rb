@@ -287,4 +287,140 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       RUBY
     end
   end
+
+  context 'with sibling ordering (orchestration methods)' do
+    it 'detects when methods called in sequence are defined out of order' do
+      expect_offense(<<~RUBY)
+        class SomeClass
+          def build
+            klass = Class.new
+            bar(klass)
+            foo(klass)
+            klass
+          end
+
+          private
+
+          def foo(klass)
+          ^^^^^^^^^^^^^^ Define #foo after #bar to match the order they are called together
+            # implementation
+          end
+
+          def bar(klass)
+            # implementation
+          end
+        end
+      RUBY
+
+      expect_correction(<<~RUBY)
+        class SomeClass
+          def build
+            klass = Class.new
+            bar(klass)
+            foo(klass)
+            klass
+          end
+
+          private
+
+          def bar(klass)
+            # implementation
+          end
+
+          def foo(klass)
+            # implementation
+          end
+        end
+      RUBY
+    end
+
+    it 'accepts methods defined in the same order they are called together' do
+      expect_no_offenses(<<~RUBY)
+        class Generator
+          def build
+            klass = Class.new
+            define_instance_methods(klass)
+            define_class_methods(klass)
+            klass
+          end
+
+          private
+
+          def define_instance_methods(klass)
+            # implementation
+          end
+
+          def define_class_methods(klass)
+            # implementation
+          end
+        end
+      RUBY
+    end
+
+    it 'does not enforce sibling ordering when methods also have direct call relationships' do
+      expect_no_offenses(<<~RUBY)
+        class Service
+          def orchestrate
+            prepare_data
+            process_data
+          end
+
+          def process_data
+            prepare_data  # direct call relationship exists
+          end
+
+          def prepare_data
+            # implementation
+          end
+        end
+      RUBY
+    end
+
+    it 'handles multiple sibling relationships in complex orchestration' do
+      expect_offense(<<~RUBY)
+        class Pipeline
+          def run
+            step_one
+            step_two
+            step_three
+          end
+
+          def step_three
+          ^^^^^^^^^^^^^^ Define #step_three after #step_two to match the order they are called together
+            # third
+          end
+
+          def step_one
+            # first
+          end
+
+          def step_two
+            # second
+          end
+        end
+      RUBY
+
+      expect_correction(<<~RUBY)
+        class Pipeline
+          def run
+            step_one
+            step_two
+            step_three
+          end
+
+          def step_one
+            # first
+          end
+
+          def step_two
+            # second
+          end
+
+          def step_three
+            # third
+          end
+        end
+      RUBY
+    end
+  end
 end
