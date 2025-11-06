@@ -251,7 +251,7 @@ module RuboCop
                         end
 
           # Expand the replaced region:
-          # - if a visibility node exists, start from its begin_pos (so we replace it)
+          # - if a visibility node exists, start from its begin_pos
           # - otherwise, start from the earliest leading doc-comment of the defs
           section_begin =
             if visibility_node
