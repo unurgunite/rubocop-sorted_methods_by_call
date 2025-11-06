@@ -4,6 +4,8 @@
 [![CI](https://github.com/unurgunite/rubocop-sorted_methods_by_call/actions/workflows/ci.yml/badge.svg)](https://github.com/unurgunite/rubocop-sorted_methods_by_call/actions)
 [![Gem Version](https://badge.fury.io/rb/rubocop-sorted_methods_by_call.svg)](https://rubygems.org/gems/rubocop-sorted_methods_by_call)
 
+**Enforces "waterfall" method ordering**: define methods *after* any method that calls them within the same scope.
+
 * [RuboCop::SortedMethodsByCall](#rubocopsortedmethodsbycall)
     * [Features](#features)
     * [Installation](#installation)
@@ -24,16 +26,14 @@
     * [License](#license)
     * [Code of Conduct](#code-of-conduct)
 
-**Enforces "waterfall" method ordering**: define methods *after* any method that calls them within the same scope.
-
 ## Features
 
-- **Waterfall ordering enforcement**: Caller methods must be defined before their callees
-- **Smart visibility handling**: Respects `private`/`protected`/`public` sections
-- **Safe mutual recursion**: Handles recursive method calls gracefully
-- **Autocorrection support**: Automatically reorders methods (opt-in with `-A`)
-- **Full RuboCop integration**: Works seamlessly with modern RuboCop plugin system
-- **Comprehensive scope support**: Classes, modules, singleton classes, and top-level
+- **Waterfall ordering enforcement**: Caller methods must be defined before their callees;
+- **Smart visibility handling**: Respects `private`/`protected`/`public` sections;
+- **Safe mutual recursion**: Handles recursive method calls gracefully;
+- **Autocorrection support**: Automatically reorders methods (opt-in with `-A`);
+- **Full RuboCop integration**: Works seamlessly with modern RuboCop plugin system;
+- **Comprehensive scope support**: Classes, modules, singleton classes, and top-level;
 
 ## Installation
 
@@ -82,19 +82,28 @@ SortedMethodsByCall/Waterfall:
 
 ### Good Code (waterfall order)
 
+In waterfall ordering, **callers come before callees**. This creates a top-down reading flow where main logic appears
+before implementation details.
+
 ```ruby
+
 class Service
   def call
-    do_smth
+    foo
+    bar
   end
 
   private
 
-  def do_smth
-    well
+  def bar
+    method123
   end
 
-  def well
+  def method123
+    foo
+  end
+
+  def foo
     123
   end
 end
@@ -103,19 +112,25 @@ end
 ### Bad Code (violates waterfall order)
 
 ```ruby
+
 class Service
   def call
-    do_smth
+    foo
+    bar
   end
 
   private
 
-  def well # ❌ Offense: Define #well after its caller #do_smth
+  def foo # ❌ Offense: Define #foo after its caller #method123
     123
   end
 
-  def do_smth
-    well
+  def bar
+    method123
+  end
+
+  def method123
+    foo
   end
 end
 ```
@@ -128,25 +143,7 @@ Run with unsafe autocorrection to automatically fix violations:
 bundle exec rubocop -A
 ```
 
-This will reorder the methods while preserving comments and visibility modifiers:
-
-```ruby
-class Service
-  def call
-    do_smth
-  end
-
-  private
-
-  def do_smth
-    well
-  end
-
-  def well
-    123
-  end
-end
-```
+This will reorder the methods while preserving comments and visibility modifiers.
 
 ## Testing
 
@@ -160,7 +157,7 @@ Run RuboCop on the gem itself:
 
 ```bash
 bundle exec rubocop
-bundle exec rubocop --config .rubocop.test.yml lib/ -A
+bundle exec rubocop --config test_project/.rubocop.test.yml lib/ -A
 ```
 
 ## Development
@@ -212,8 +209,7 @@ at https://unurgunite.github.io/rubocop-sorted_methods_by_call_docs/
 
 ## License
 
-The gem is available as open source under the terms of
-the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
+The gem is available as open source under the terms of MIT License.
 
 ## Code of Conduct
 
@@ -221,5 +217,6 @@ Everyone interacting with this project is expected to follow the [Code of Conduc
 
 ---
 
-> **Note**: This gem is now stable and ready for production use! The "waterfall" ordering pattern helps create more
-> readable code by ensuring that methods are defined in the order they're conceptually needed.
+> **Note**: This gem implements **true waterfall ordering** that considers the complete call graph across all methods in
+> a scope. Methods are ordered so that every callee appears after all of its callers, creating a natural top-down
+> reading flow.
