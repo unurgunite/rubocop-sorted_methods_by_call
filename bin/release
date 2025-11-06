@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 
-curl -sSL https://raw.githubusercontent.com/unurgunite/release_gem/refs/heads/master/release | bash "$@"
+set -euo pipefail
+
+bash <(curl -sSL https://raw.githubusercontent.com/unurgunite/release_gem/refs/heads/master/release)
