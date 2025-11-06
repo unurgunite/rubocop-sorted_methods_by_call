@@ -11,21 +11,32 @@ module RuboCop
       # - Autocorrect: UNSAFE; reorders methods within a contiguous visibility section
       #
       # Example (good):
-      #   def foo
+      #   def call
+      #     foo
       #     bar
       #   end
       #
+      #   private
+      #
       #   def bar
+      #     method123
+      #   end
+      #
+      #   def method123
+      #     foo
+      #   end
+      #
+      #   def foo
       #     123
       #   end
       #
       # Example (bad):
-      #   def bar
+      #   def foo
       #     123
       #   end
       #
-      #   def foo
-      #     bar
+      #   def call
+      #     foo
       #   end
       #
       # Autocorrect (unsafe, opt-in via SafeAutoCorrect: false): topologically sorts the contiguous
@@ -102,6 +113,7 @@ module RuboCop
           names_set = names.to_set
           index_of = names.each_with_index.to_h
 
+          # Build complete call graph - find ALL method calls in ALL methods
           edges = []
           def_nodes.each do |def_node|
             local_calls(def_node, names_set).each do |callee|
@@ -172,20 +184,6 @@ module RuboCop
           res.uniq
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#find_violation+ -> [Symbol, Symbol], nil
-        #
-        # Finds the first backward edge (caller->callee where callee is defined above caller)
-        # using the provided index map.
-        #
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @param [Hash{Symbol=>Integer}] index_of
-        # @return [[Symbol, Symbol], nil] tuple [caller, callee] or nil if none found
-        def find_violation(edges, index_of)
-          edges.find do |caller, callee|
-            index_of.key?(caller) && index_of.key?(callee) && index_of[callee] < index_of[caller]
-          end
-        end
-
         # +RuboCop::Cop::SortedMethodsByCall::Waterfall#try_autocorrect+ -> void
         #
         # UNSAFE: Reorders method definitions inside the target visibility section only
@@ -215,7 +213,7 @@ module RuboCop
           # No violation -> nothing to do
           return unless caller_name && callee_name
 
-          #            Find a visibility section that contains both names
+          # Find a visibility section that contains both names
           target_section = sections.find do |section|
             names_in_section = section[:defs].to_set(&:method_name)
             names_in_section.include?(caller_name) && names_in_section.include?(callee_name)
@@ -228,11 +226,9 @@ module RuboCop
           return unless defs.size > 1
 
           # Apply topological sort only within this visibility section
-          defs = target_section[:defs]
           names = defs.map(&:method_name)
           idx_of = names.each_with_index.to_h
 
-          # Filter edges to only those within this section
           # Filter edges to only those within this section
           section_names = names.to_set
           section_edges = edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
@@ -245,7 +241,7 @@ module RuboCop
           sorted_def_sources = sorted_names.map { |name| ranges_by_name[name].source }
 
           # Reconstruct the section: keep the visibility modifier (if any) above the first def
-          visibility_node   = target_section[:visibility]
+          visibility_node = target_section[:visibility]
           visibility_source = visibility_node&.source.to_s
 
           new_content = if visibility_source.empty?
@@ -306,6 +302,7 @@ module RuboCop
             # If mutual recursion allowed and there is a path callee -> caller, skip
             next if allow_recursion && path_exists?(callee, caller, adj)
 
+            # Violation: callee is defined BEFORE caller (waterfall order)
             index_of[callee] < index_of[caller]
           end
         end
@@ -470,7 +467,7 @@ module RuboCop
         # @return [Parser::Source::Range] Range covering leading comments + method body.
         def range_with_leading_comments(node)
           buffer = processed_source.buffer
-          expr   = node.source_range
+          expr = node.source_range
 
           start_line = expr.line
           lineno = start_line - 1

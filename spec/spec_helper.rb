@@ -2,7 +2,6 @@
 
 require 'rubocop'
 require 'rubocop/rspec/expect_offense'
-require 'parser/current'
 
 RSpec.configure do |config|
   config.include RuboCop::RSpec::ExpectOffense

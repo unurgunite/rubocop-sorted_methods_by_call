@@ -6,7 +6,7 @@ require 'rubocop-sorted_methods_by_call'
 RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
   let(:config) do
     RuboCop::Config.new(
-      'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'SafeAutoCorrect' => false }
+      'SortedMethodsByCall/Waterfall' => { 'Enabled' => true }
     )
   end
 
@@ -235,5 +235,56 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       end
     RUBY
+  end
+
+  context 'with complex call graphs' do
+    it 'handles methods called from multiple places' do
+      expect_offense(<<~RUBY)
+        class Service
+          def call
+            foo
+            bar
+          end
+
+          private
+
+          def foo
+          ^^^^^^^ Define #foo after its caller #method123 (waterfall order).
+            123
+          end
+
+          def bar
+            method123
+          end
+
+          def method123
+            foo
+          end
+        end
+      RUBY
+
+      expect_correction(<<~RUBY)
+        class Service
+          def call
+            foo
+            bar
+          end
+
+          private
+
+          def bar
+            method123
+          end
+
+          def method123
+            foo
+          end
+
+          def foo
+            123
+          end
+        end
+      RUBY
+    end
   end
 end

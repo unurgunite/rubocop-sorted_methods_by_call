@@ -10,6 +10,11 @@
     * [Configuration](#configuration)
         * [Basic Setup](#basic-setup)
         * [Configuration Options](#configuration-options)
+            * [Ordering Strategies](#ordering-strategies)
+                * [`waterfall` (default)](#waterfall-default)
+                * [execution_order](#execution_order)
+            * [When to Use Each Strategy](#when-to-use-each-strategy)
+    * [Practical Recommendation](#practical-recommendation)
     * [Usage Examples](#usage-examples)
         * [Good Code (waterfall order)](#good-code-waterfall-order)
         * [Bad Code (violates waterfall order)](#bad-code-violates-waterfall-order)
@@ -71,12 +76,128 @@ SortedMethodsByCall/Waterfall:
 
 ### Configuration Options
 
+#### Ordering Strategies
+
+The cop supports two different method ordering strategies via the `OrderingStrategy` configuration:
+
+##### `waterfall` (default)
+
+Enforces **waterfall ordering** where callees are defined **after** their callers. This creates a top-down reading flow
+where main logic appears before helper methods.
+
+```ruby
+# Good (waterfall order)
+def main_logic
+  helper_method
+end
+
+def helper_method
+  # implementation
+end
+```
+
+##### execution_order
+
+Enforces execution ordering where methods are defined in the same order they are called within each method. This creates
+a linear execution flow that matches runtime behavior.
+
+```ruby
+# Good (execution order)
+def process_data
+  validate_input # called first
+  transform_data # called second
+  save_results # called third
+end
+
+def validate_input # defined first (called first)  
+  # implementation
+end
+
+def transform_data # defined second (called second)
+  # implementation
+end
+
+def save_results # defined third (called third)
+  # implementation
+end
+```
+
+Complete Configuration Example
+
 ```yaml
 SortedMethodsByCall/Waterfall:
   Enabled: true
   SafeAutoCorrect: false          # Autocorrection requires -A flag
   AllowedRecursion: true          # Allow mutual recursion (default: true)
+  OrderingStrategy: "waterfall"   # or "execution_order"
 ```
+
+#### When to Use Each Strategy
+
+- Use waterfall (default) for:
+    - Complex business logic with nested helper methods
+    - Code where you want to understand the high-level flow first
+    - Traditional object-oriented design
+- Use execution_order for:
+    - Service objects and command patterns
+    - Sequential processing pipelines
+    - Rails controllers and service classes
+    - Code where execution order is important to understand
+
+> Note: The execution_order strategy is particularly well-suited for Rails service objects where methods are typically
+> called in a specific sequence.
+
+## Practical Recommendation
+
+For your specific use case with Rails service objects like this:
+
+```ruby
+class Service
+  def call
+    foo # called first
+    bar # called second
+  end
+
+  private
+
+  def foo
+    123
+  end
+
+  def bar
+    333
+  end
+end
+```
+
+You would want to use `execution_order` strategy, which would enforce:
+
+```ruby
+
+class Service
+  def call
+    foo # called first
+    bar # called second
+  end
+
+  private
+
+  def foo # defined first (called first)
+    123
+  end
+
+  def bar # defined second (called second)
+    333
+  end
+end
+```
+
+This makes the code much more readable because the method definitions follow the same order as the execution flow!
+
+The default waterfall strategy would actually want the opposite order (`#bar` before `#foo`), which doesn't make sense
+for sequential service objects.
+
+So for Rails applications, you'll likely want to set OrderingStrategy: "execution_order" in your .rubocop.yml.
 
 ## Usage Examples
 
@@ -85,16 +206,16 @@ SortedMethodsByCall/Waterfall:
 ```ruby
 class Service
   def call
-    do_smth
+    bar
   end
 
   private
 
-  def do_smth
-    well
+  def bar
+    foo
   end
 
-  def well
+  def foo
     123
   end
 end
@@ -103,19 +224,20 @@ end
 ### Bad Code (violates waterfall order)
 
 ```ruby
+
 class Service
   def call
-    do_smth
+    bar
   end
 
   private
 
-  def well # ❌ Offense: Define #well after its caller #do_smth
+  def foo # ❌ Offense: Define #foo after its caller #bar
     123
   end
 
-  def do_smth
-    well
+  def bar
+    foo
   end
 end
 ```
@@ -133,16 +255,16 @@ This will reorder the methods while preserving comments and visibility modifiers
 ```ruby
 class Service
   def call
-    do_smth
+    bar
   end
 
   private
 
-  def do_smth
-    well
+  def bar
+    foo
   end
 
-  def well
+  def foo
     123
   end
 end
