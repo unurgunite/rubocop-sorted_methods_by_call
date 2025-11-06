@@ -122,7 +122,7 @@ module RuboCop
                  .map    { |callee| [def_node.method_name, callee] }
           end
 
-          all_callees = direct_edges.map(&:last).to_set
+          all_callees = direct_edges.to_set(&:last)
 
           # -----------------------------------------------------------
           # Phase 2  Add sibling‑order edges for orchestration methods
@@ -237,7 +237,7 @@ module RuboCop
         #
         # @note Applied only when user asked for autocorrections; with SafeAutoCorrect: false, this runs under -A.
         # @note Also preserves contiguous leading doc comments above each method.
-        def try_autocorrect(corrector, body_nodes, def_nodes, edges, violation)
+        def try_autocorrect(corrector, body_nodes, _def_nodes, edges, violation)
           sections = extract_visibility_sections(body_nodes)
 
           caller_name, callee_name = violation
