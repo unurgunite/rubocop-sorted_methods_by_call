@@ -141,7 +141,7 @@ module RuboCop
           end
 
           # Methods that are called by someone else in this scope
-          all_callees = direct_edges.map(&:last).to_set
+          all_callees = direct_edges.to_set(&:last)
 
           # Phase 2: sibling-order edges from orchestration methods
           sibling_edges = []
@@ -208,28 +208,6 @@ module RuboCop
           else
             []
           end
-        end
-
-        # Collects local calls (receiver is nil/self) from within a def node
-        # whose names are present in +names_set+.
-        #
-        # @param def_node [RuboCop::AST::Node] :def or :defs
-        # @param names_set [Set<Symbol>] known local method names in this scope
-        # @return [Array<Symbol>] unique callee names
-        # @api private
-        def local_calls(def_node, names_set)
-          body = def_node.body
-          return [] unless body
-
-          res = []
-          body.each_node(:send) do |send|
-            recv = send.receiver
-            next unless recv.nil? || recv&.self_type?
-
-            mname = send.method_name
-            res << mname if names_set.include?(mname)
-          end
-          res.uniq
         end
 
         # UNSAFE: Reorders method definitions inside the target visibility section only
@@ -336,6 +314,28 @@ module RuboCop
 
           region = Parser::Source::Range.new(processed_source.buffer, section_begin, section_end)
           corrector.replace(region, new_content)
+        end
+
+        # Collects local calls (receiver is nil/self) from within a def node
+        # whose names are present in +names_set+.
+        #
+        # @param def_node [RuboCop::AST::Node] :def or :defs
+        # @param names_set [Set<Symbol>] known local method names in this scope
+        # @return [Array<Symbol>] unique callee names
+        # @api private
+        def local_calls(def_node, names_set)
+          body = def_node.body
+          return [] unless body
+
+          res = []
+          body.each_node(:send) do |send|
+            recv = send.receiver
+            next unless recv.nil? || recv&.self_type?
+
+            mname = send.method_name
+            res << mname if names_set.include?(mname)
+          end
+          res.uniq
         end
 
         # Builds an adjacency list for edges restricted to known names.
