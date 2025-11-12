@@ -423,4 +423,111 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       RUBY
     end
   end
+
+  context 'when non-contiguous sections' do
+    it 'does not autocorrect across a nested class' do
+      source = <<~RUBY
+        class Demo
+          def b
+            1
+          end
+
+          class Inner
+            def something; end
+          end
+
+          def a
+            b
+          end
+        end
+      RUBY
+
+      expect_offense(<<~RUBY, source: source)
+        class Demo
+          def b
+          ^^^^^ Define #b after its caller #a (waterfall order).
+            1
+          end
+
+          class Inner
+            def something; end
+          end
+
+          def a
+            b
+          end
+        end
+      RUBY
+
+      expect_no_corrections
+    end
+
+    it 'autocorrects within a contiguous section and preserves a nested class below' do
+      expect_offense(<<~RUBY)
+        class Demo
+          def d
+          ^^^^^ Define #d after its caller #c (waterfall order).
+            1
+          end
+
+          def c
+            d
+          end
+
+          class Inner
+            def hmm; end
+          end
+        end
+      RUBY
+
+      expect_correction(<<~RUBY)
+        class Demo
+          def c
+            d
+          end
+
+          def d
+            1
+          end
+
+          class Inner
+            def hmm; end
+          end
+        end
+      RUBY
+    end
+
+    it 'does not autocorrect across a non-visibility send' do
+      source = <<~RUBY
+        class Demo
+          def b
+            1
+          end
+
+          before_action :x
+
+          def a
+            b
+          end
+        end
+      RUBY
+
+      expect_offense(<<~RUBY, source: source)
+        class Demo
+          def b
+          ^^^^^ Define #b after its caller #a (waterfall order).
+            1
+          end
+
+          before_action :x
+
+          def a
+            b
+          end
+        end
+      RUBY
+
+      expect_no_corrections
+    end
+  end
 end
