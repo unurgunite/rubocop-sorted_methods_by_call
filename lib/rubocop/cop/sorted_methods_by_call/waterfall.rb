@@ -3,89 +3,107 @@
 module RuboCop
   module Cop
     module SortedMethodsByCall
-      # +RuboCop::Cop::SortedMethodsByCall::Waterfall+ enforces "waterfall" ordering:
-      # define a method after any method that calls it (within the same scope).
+      # Enforces "waterfall" ordering: define a method after any method
+      # that calls it within the same scope. Produces a top-down reading flow
+      # where orchestration appears before implementation details.
       #
-      # - Scopes: class/module/sclass (top-level can be enabled in config)
+      # - Scopes: class/module/sclass (top-level can be analyzed via on_begin)
       # - Offense: when a callee is defined above its caller
       # - Autocorrect: UNSAFE; reorders methods within a contiguous visibility section
+      #   (does not cross other statements or nested scopes). Preserves leading
+      #   doc comments on each method. Skips cycles and non-contiguous groups.
       #
-      # Example (good):
-      #   def call
-      #     foo
-      #     bar
+      # Configuration
+      # - AllowedRecursion [Boolean] (default: true)
+      #     If true, the cop ignores violations that are part of a mutual recursion
+      #     cycle (callee → … → caller). If false, such cycles are reported.
+      # - SafeAutoCorrect [Boolean] (default: false)
+      #     Autocorrection is unsafe and only runs under -A, never under -a.
+      #
+      # @example Good (waterfall order)
+      #   class Service
+      #     def call
+      #       foo
+      #       bar
+      #     end
+      #
+      #     private
+      #
+      #     def bar
+      #       method123
+      #     end
+      #
+      #     def method123
+      #       foo
+      #     end
+      #
+      #     def foo
+      #       123
+      #     end
       #   end
       #
-      #   private
+      # @example Bad (violates waterfall order)
+      #   class Service
+      #     def call
+      #       foo
+      #       bar
+      #     end
       #
-      #   def bar
-      #     method123
+      #     private
+      #
+      #     def foo
+      #       123
+      #     end
+      #
+      #     def bar
+      #       method123
+      #     end
+      #
+      #     def method123
+      #       foo
+      #     end
       #   end
       #
-      #   def method123
-      #     foo
-      #   end
-      #
-      #   def foo
-      #     123
-      #   end
-      #
-      # Example (bad):
-      #   def foo
-      #     123
-      #   end
-      #
-      #   def call
-      #     foo
-      #   end
-      #
-      # Autocorrect (unsafe, opt-in via SafeAutoCorrect: false): topologically sorts the contiguous
-      # block of defs to satisfy edges (caller -> callee). Skips cycles and non-contiguous groups.
+      # @see #analyze_scope
+      # @see #try_autocorrect
       class Waterfall < ::RuboCop::Cop::Base # rubocop:disable Metrics/ClassLength
         include ::RuboCop::Cop::RangeHelp
         extend ::RuboCop::Cop::AutoCorrector
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall::MSG+ -> String
-        #
-        # Template message for offenses.
+        # Template message for offenses where a callee appears before its caller.
         MSG = 'Define %<callee>s after its caller %<caller>s (waterfall order).'
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#on_begin+ -> void
+        # Entry point for root :begin nodes (top-level).
         #
-        # Entry point for root :begin nodes (top-level). Whether it is analyzed
-        # depends on configuration (e.g., CheckTopLevel). By default, only class/module scopes are analyzed.
+        # Whether top-level is analyzed depends on how the code is structured;
+        # by default we only analyze class/module/sclass scopes, but top-level
+        # is supported through this hook.
         #
-        # @param [RuboCop::AST::Node] node
+        # @param node [RuboCop::AST::Node] root :begin node
         # @return [void]
         def on_begin(node)
           analyze_scope(node)
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#on_class+ -> void
-        #
         # Entry point for class scopes.
         #
-        # @param [RuboCop::AST::Node] node
+        # @param node [RuboCop::AST::Node] :class node
         # @return [void]
         def on_class(node)
           analyze_scope(node)
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#on_module+ -> void
-        #
         # Entry point for module scopes.
         #
-        # @param [RuboCop::AST::Node] node
+        # @param node [RuboCop::AST::Node] :module node
         # @return [void]
         def on_module(node)
           analyze_scope(node)
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#on_sclass+ -> void
-        #
         # Entry point for singleton class scopes (class << self).
         #
-        # @param [RuboCop::AST::Node] node
+        # @param node [RuboCop::AST::Node] :sclass node
         # @return [void]
         def on_sclass(node)
           analyze_scope(node)
@@ -93,14 +111,16 @@ module RuboCop
 
         private
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#analyze_scope+ -> void
+        # Collects defs in the current scope, builds caller→callee edges for local sends,
+        # locates the first backward edge (callee defined before caller), and registers
+        # an offense. If autocorrection is requested, attempts to reorder methods within
+        # the same visibility section.
         #
-        # Collects defs in the current scope, builds caller->callee edges
-        # for local sends, finds the first backward edge (callee defined before caller),
-        # and registers an offense. If autocorrection is requested, attempts to reorder
-        # methods within the same visibility section.
+        # - Direct edges are used for recursion checks (AllowedRecursion).
+        # - “Sibling” edges are added from orchestrator methods (not called by others)
+        #   to reflect the order of consecutive calls (foo then bar).
         #
-        # @param [RuboCop::AST::Node] scope_node
+        # @param scope_node [RuboCop::AST::Node] a :begin, :class, :module, or :sclass node
         # @return [void]
         def analyze_scope(scope_node)
           body_nodes = scope_body_nodes(scope_node)
@@ -120,7 +140,7 @@ module RuboCop
                  .map    { |callee| [def_node.method_name, callee] }
           end
 
-          # FIX: collect callees correctly
+          # Methods that are called by someone else in this scope
           all_callees = direct_edges.map(&:last).to_set
 
           # Phase 2: sibling-order edges from orchestration methods
@@ -131,6 +151,7 @@ module RuboCop
             calls = local_calls(def_node, names_set)
             calls.each_cons(2) do |a, b|
               next if direct_edges.any? { |u, v| (u == a && v == b) || (u == b && v == a) }
+
               sibling_edges << [a, b]
             end
           end
@@ -164,18 +185,17 @@ module RuboCop
             try_autocorrect(corrector, body_nodes, def_nodes, edges_for_sort, violation)
           end
 
-          # Recurse into nested scopes
+          # Recurse into nested scopes inside this body
           body_nodes.each do |n|
             analyze_scope(n) if n.class_type? || n.module_type? || n.sclass_type?
           end
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#scope_body_nodes+ -> Array<RuboCop::AST::Node>
-        #
         # Normalizes a scope node to its immediate "body" items we iterate over.
         #
-        # @param [RuboCop::AST::Node] node
-        # @return [Array<RuboCop::AST::Node>]
+        # @param node [RuboCop::AST::Node]
+        # @return [Array<RuboCop::AST::Node>] direct children inside this scope
+        # @api private
         def scope_body_nodes(node)
           case node.type
           when :begin
@@ -190,14 +210,13 @@ module RuboCop
           end
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#local_calls+ -> Array<Symbol>
+        # Collects local calls (receiver is nil/self) from within a def node
+        # whose names are present in +names_set+.
         #
-        # Returns the set of local method names (receiver is nil/self) invoked inside
-        # a given def node whose names exist in the provided name set.
-        #
-        # @param [RuboCop::AST::Node] def_node
-        # @param [Set<Symbol>] names_set
-        # @return [Array<Symbol>]
+        # @param def_node [RuboCop::AST::Node] :def or :defs
+        # @param names_set [Set<Symbol>] known local method names in this scope
+        # @return [Array<Symbol>] unique callee names
+        # @api private
         def local_calls(def_node, names_set)
           body = def_node.body
           return [] unless body
@@ -213,8 +232,6 @@ module RuboCop
           res.uniq
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#try_autocorrect+ -> void
-        #
         # UNSAFE: Reorders method definitions inside the target visibility section only
         # (does not cross private/protected/public boundaries). Skips if defs are not
         # contiguous within the section or if a cycle prevents a consistent topo order.
@@ -226,14 +243,13 @@ module RuboCop
         # - Rewrites only the exact contiguous section (plus the visibility line if present).
         # - Preserves leading doc comments for each method.
         #
-        # @param [RuboCop::Cop::Corrector] corrector
-        # @param [Array<RuboCop::AST::Node>] body_nodes
-        # @param [Array<RuboCop::AST::Node>] def_nodes
-        # @param [Array<Array(Symbol, Symbol)>] edges
+        # @param corrector [RuboCop::Cop::Corrector]
+        # @param body_nodes [Array<RuboCop::AST::Node>] raw nodes of the scope body
+        # @param def_nodes [Array<RuboCop::AST::Node>] all def/defs nodes in this body
+        # @param edges [Array<Array(Symbol, Symbol)>] direct + sibling edges for this scope
+        # @param initial_violation [Array<(Symbol, Symbol)>, nil] an already-found violating edge
         # @return [void]
-        #
-        # @note Applied only when user asked for autocorrections; with SafeAutoCorrect: false, this runs under -A.
-        # @note Also preserves contiguous leading doc comments above each method.
+        # @api private
         def try_autocorrect(corrector, body_nodes, def_nodes, edges, initial_violation = nil)
           sections = extract_visibility_sections(body_nodes)
 
@@ -296,7 +312,7 @@ module RuboCop
           sorted_names = topo_sort(section_names, section_edges_for_sort, section_idx_of)
           return if sorted_names.nil? || sorted_names == section_names
 
-          # Rebuild section
+          # Rebuild section (preserve per-method leading docs)
           ranges_by_name = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
           sorted_def_sources = sorted_names.map { |n| ranges_by_name[n].source }
 
@@ -322,13 +338,12 @@ module RuboCop
           corrector.replace(region, new_content)
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#build_adj+ -> Hash{Symbol=>Array<Symbol>}
-        #
         # Builds an adjacency list for edges restricted to known names.
         #
-        # @param [Array<Symbol>] names
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @return [Hash{Symbol=>Array<Symbol>}]
+        # @param names [Array<Symbol>] method names
+        # @param edges [Array<Array(Symbol, Symbol)>] caller→callee pairs
+        # @return [Hash{Symbol=>Array<Symbol>}] adjacency list
+        # @api private
         def build_adj(names, edges)
           allowed = names.to_set
           adj = Hash.new { |h, k| h[k] = [] }
@@ -341,16 +356,15 @@ module RuboCop
           adj
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#first_backward_edge+ -> [Symbol, Symbol], nil
+        # Returns the first backward edge found, optionally skipping edges
+        # that participate in mutual recursion (when AllowedRecursion is true).
         #
-        # Returns the first backward edge found, optionally skipping mutual recursion
-        # if so configured.
-        #
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @param [Hash{Symbol=>Integer}] index_of
-        # @param [Hash{Symbol=>Array<Symbol>}] adj
-        # @param [Boolean] allow_recursion whether to ignore cycles
-        # @return [[Symbol, Symbol], nil]
+        # @param edges [Array<Array(Symbol, Symbol)>] candidate edges to check
+        # @param index_of [Hash{Symbol=>Integer}] current definition order (name -> index)
+        # @param adj [Hash{Symbol=>Array<Symbol>}] direct-call adjacency for path checks
+        # @param allow_recursion [Boolean] whether mutual recursion suppresses a violation
+        # @return [(Symbol, Symbol), nil] the violating (caller, callee) or nil
+        # @api private
         def first_backward_edge(edges, index_of, adj, allow_recursion)
           edges.find do |caller, callee|
             next unless index_of.key?(caller) && index_of.key?(callee)
@@ -362,15 +376,14 @@ module RuboCop
           end
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#path_exists?+ -> Boolean
+        # Breadth-first search to detect if a path exists in the direct-call graph.
         #
-        # Tests whether a path exists in the adjacency graph from +src+ to +dst+ (BFS).
-        #
-        # @param [Symbol] src
-        # @param [Symbol] dst
-        # @param [Hash{Symbol=>Array<Symbol>}] adj
-        # @param [Integer] limit traversal step limit (guard)
-        # @return [Boolean]
+        # @param src [Symbol] source method
+        # @param dst [Symbol] destination method
+        # @param adj [Hash{Symbol=>Array<Symbol>}] adjacency list
+        # @param limit [Integer] traversal safety limit
+        # @return [Boolean] true if a path exists
+        # @api private
         def path_exists?(src, dst, adj, limit = 200)
           return true if src == dst
 
@@ -392,24 +405,20 @@ module RuboCop
           false
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#extract_visibility_sections+ -> Array<Hash>
+        # Splits the scope body into contiguous sections of def/defs grouped
+        # by the visibility modifier immediately preceding them (private/protected/public).
         #
-        # Splits the body into contiguous sections of defs grouped by the visibility
-        # modifier immediately preceding them (private/protected/public). A section is:
-        #   - :visibility -> the bare visibility node (send) or nil
-        #   - :defs       -> contiguous def/defs nodes
-        #   - :start_pos  -> begin_pos of the first def in the section
-        #   - :end_pos    -> end_pos of the last def in the section
+        # A section is represented as a Hash with:
+        # - :visibility [RuboCop::AST::Node, nil] the bare visibility send, or nil
+        # - :defs [Array<RuboCop::AST::Node>] contiguous def/defs nodes
+        # - :start_pos [Integer] begin_pos of the first def in the section
+        # - :end_pos [Integer] end_pos of the last def in the section
         #
-        # Splits the body into contiguous sections of defs grouped by visibility modifier
-        # (private/protected/public). Returns metadata for each section including:
-        #   :visibility  -> visibility modifier node or nil
-        #   :defs        -> array of def/defs nodes
-        #   :start_pos   -> Integer (begin_pos)
-        #   :end_pos     -> Integer (end_pos)
+        # Non-visibility sends, constants, and nested scopes break contiguity.
         #
-        # @param [Array<RuboCop::AST::Node>] body_nodes
-        # @return [Array<Hash{Symbol=>untyped}>]
+        # @param body_nodes [Array<RuboCop::AST::Node>] raw nodes in the scope body
+        # @return [Array<Hash>] list of sections metadata
+        # @api private
         def extract_visibility_sections(body_nodes)
           sections = []
           current_visibility = nil
@@ -472,14 +481,13 @@ module RuboCop
           sections
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#topo_sort+ -> Array<Symbol>, nil
+        # Stable topological sort using the current order as a tie-breaker.
         #
-        # Performs a stable topological sort using current order as a tie-breaker.
-        #
-        # @param [Array<Symbol>] names
-        # @param [Array<Array(Symbol, Symbol)>] edges
-        # @param [Hash{Symbol=>Integer}] idx_of
+        # @param names [Array<Symbol>] names to sort
+        # @param edges [Array<Array(Symbol, Symbol)>] caller→callee edges to respect
+        # @param idx_of [Hash{Symbol=>Integer}] current order (name -> index)
         # @return [Array<Symbol>, nil] sorted names or nil if a cycle prevents a full order
+        # @api private
         def topo_sort(names, edges, idx_of)
           indegree = Hash.new(0)
           adj = Hash.new { |h, k| h[k] = [] }
@@ -512,14 +520,13 @@ module RuboCop
           result
         end
 
-        # +RuboCop::Cop::SortedMethodsByCall::Waterfall#range_with_leading_comments+ -> Parser::Source::Range
-        #
         # Returns a range that starts at the first contiguous comment line immediately
-        # above the def/defs node, and ends at the end of the def. This preserves
+        # above the def/defs node and ends at the end of the def. This preserves
         # YARD/RDoc doc comments when methods are moved during autocorrect.
         #
-        # @param [RuboCop::AST::Node] node The def/defs node.
-        # @return [Parser::Source::Range] Range covering leading comments + method body.
+        # @param node [RuboCop::AST::Node] :def or :defs to capture with leading comments
+        # @return [Parser::Source::Range]
+        # @api private
         def range_with_leading_comments(node)
           buffer = processed_source.buffer
           expr = node.source_range
