@@ -15,10 +15,15 @@ module RuboCop
       #
       # Configuration
       # - AllowedRecursion [Boolean] (default: true)
-      #     If true, the cop ignores violations that are part of a mutual recursion
-      #     cycle (callee → … → caller). If false, such cycles are reported.
+      #     If true, the cop ignores violations that are part of a recursion cycle
+      #     detectable in the direct call graph (callee → … → caller). If false,
+      #     such cycles are reported.
       # - SafeAutoCorrect [Boolean] (default: false)
       #     Autocorrection is unsafe and only runs under -A, never under -a.
+      # - SkipCyclicSiblingEdges [Boolean] (default: false)
+      #     If true, the cop will not add "called together" sibling-order edges
+      #     that would introduce a cycle with existing constraints (direct edges +
+      #     already accepted sibling edges).
       #
       # @example Good (waterfall order)
       #   class Service
@@ -70,8 +75,19 @@ module RuboCop
         include ::RuboCop::Cop::RangeHelp
         extend ::RuboCop::Cop::AutoCorrector
 
+        VISIBILITY_METHODS = %i[private protected public].freeze
+
         # Template message for offenses where a callee appears before its caller.
         MSG = 'Define %<callee>s after its caller %<caller>s (waterfall order).'
+
+        SIBLING_MSG = 'Define %<callee>s after %<caller>s to match the order they are called together.'
+
+        MSG_CROSS_VISIBILITY_NOTE =
+          '%<base>s (Autocorrect not supported across visibility boundaries: ' \
+          '%<caller_visibility>s vs %<callee_visibility>s.)'
+
+        MSG_SIBLING_CYCLE_NOTE =
+          '%<base>s (Possible sibling cycle detected; autocorrect may be skipped.)'
 
         # Entry point for root :begin nodes (top-level).
         #
@@ -111,90 +127,57 @@ module RuboCop
 
         private
 
-        # Collects defs in the current scope, builds caller→callee edges for local sends,
-        # locates the first backward edge (callee defined before caller), and registers
-        # an offense. If autocorrection is requested, attempts to reorder methods within
-        # the same visibility section.
-        #
-        # - Direct edges are used for recursion checks (AllowedRecursion).
-        # - “Sibling” edges are added from orchestrator methods (not called by others)
-        #   to reflect the order of consecutive calls (foo then bar).
+        # Analyze a single scope node (:begin, :class, :module, :sclass):
+        # - Collect method defs in the scope body
+        # - Build direct call edges (caller → callee)
+        # - Optionally build sibling-order edges ("called together")
+        # - Find the first ordering violation and register an offense
+        # - Attempt autocorrect (under -A) within a contiguous visibility section
+        # - Recurse into nested scopes inside the body
         #
         # @param scope_node [RuboCop::AST::Node] a :begin, :class, :module, or :sclass node
         # @return [void]
+        # @api private
         def analyze_scope(scope_node)
           body_nodes = scope_body_nodes(scope_node)
           return if body_nodes.empty?
 
-          def_nodes = body_nodes.select { |n| %i[def defs].include?(n.type) }
+          def_nodes = method_def_nodes(body_nodes)
           return if def_nodes.size <= 1
 
-          names     = def_nodes.map(&:method_name)
-          names_set = names.to_set
-          index_of  = names.each_with_index.to_h
+          names, names_set, index_of = method_name_index(def_nodes)
 
-          # Phase 1: direct call edges (caller -> callee)
-          direct_edges = def_nodes.flat_map do |def_node|
-            calls = local_calls(def_node, names_set)
-            calls.reject { |callee| callee == def_node.method_name }
-                 .map    { |callee| [def_node.method_name, callee] }
-          end
+          direct_edges = build_direct_edges(def_nodes, names_set)
+          sibling_edges = build_sibling_edges(def_nodes, names_set, direct_edges, names)
 
-          # Methods that are called by someone else in this scope
-          all_callees = direct_edges.to_set(&:last)
+          edges_for_sort = direct_edges + sibling_edges
+          adj_direct = build_adj(names, direct_edges)
 
-          # Phase 2: sibling-order edges from orchestration methods
-          sibling_edges = []
-          def_nodes.each do |def_node|
-            next if all_callees.include?(def_node.method_name)
+          violation_type, violation = find_violation(direct_edges, sibling_edges, index_of, adj_direct)
+          if violation
+            _, callee_name = violation
+            callee_node = def_nodes[index_of.fetch(callee_name)]
 
-            calls = local_calls(def_node, names_set)
-            calls.each_cons(2) do |a, b|
-              next if direct_edges.any? { |u, v| (u == a && v == b) || (u == b && v == a) }
+            message = build_offense_message(
+              violation_type: violation_type,
+              violation: violation,
+              names: names,
+              edges_for_sort: edges_for_sort,
+              body_nodes: body_nodes
+            )
 
-              sibling_edges << [a, b]
+            add_offense(callee_node, message: message) do |corrector|
+              try_autocorrect(corrector, body_nodes, def_nodes, edges_for_sort, violation)
             end
           end
 
-          # Phase 3: combine for sorting, but only use direct edges for recursion checks
-          edges_for_sort   = direct_edges + sibling_edges
-          allow_recursion  = cop_config.fetch('AllowedRecursion') { true }
-          adj_direct       = build_adj(names, direct_edges)
-
-          violation = first_backward_edge(direct_edges, index_of, adj_direct, allow_recursion)
-          violation_type = :direct if violation
-
-          unless violation
-            violation = first_backward_edge(sibling_edges, index_of, adj_direct, allow_recursion)
-            violation_type = :sibling if violation
-          end
-
-          return unless violation
-
-          caller_name, callee_name = violation
-          callee_node = def_nodes[index_of[callee_name]]
-
-          message =
-            if violation_type == :sibling
-              "Define ##{callee_name} after ##{caller_name} to match the order they are called together"
-            else
-              format(MSG, callee: "##{callee_name}", caller: "##{caller_name}")
-            end
-
-          add_offense(callee_node, message: message) do |corrector|
-            try_autocorrect(corrector, body_nodes, def_nodes, edges_for_sort, violation)
-          end
-
-          # Recurse into nested scopes inside this body
-          body_nodes.each do |n|
-            analyze_scope(n) if n.class_type? || n.module_type? || n.sclass_type?
-          end
+          analyze_nested_scopes(body_nodes)
         end
 
-        # Normalizes a scope node to its immediate "body" items we iterate over.
+        # Return the direct "body statements" inside a scope node.
         #
         # @param node [RuboCop::AST::Node]
-        # @return [Array<RuboCop::AST::Node>] direct children inside this scope
+        # @return [Array<RuboCop::AST::Node>] direct children inside the scope body
         # @api private
         def scope_body_nodes(node)
           case node.type
@@ -210,50 +193,231 @@ module RuboCop
           end
         end
 
-        # UNSAFE: Reorders method definitions inside the target visibility section only
-        # (does not cross private/protected/public boundaries). Skips if defs are not
-        # contiguous within the section or if a cycle prevents a consistent topo order.
+        # Select only method definition nodes from a scope body.
         #
-        # - Uses direct call edges for recursion checks.
-        # - If the violation is a direct-call violation, sorts using only direct edges
-        #   inside the section (so sibling edges cannot block the fix).
-        # - If the violation is a sibling-order violation, includes sibling edges.
-        # - Rewrites only the exact contiguous section (plus the visibility line if present).
-        # - Preserves leading doc comments for each method.
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @return [Array<RuboCop::AST::Node>] :def/:defs nodes
+        # @api private
+        def method_def_nodes(body_nodes)
+          body_nodes.select { |n| %i[def defs].include?(n.type) }
+        end
+
+        # Compute helper structures for method names in this scope.
+        #
+        # @param def_nodes [Array<RuboCop::AST::Node>]
+        # @return [Array<(Array<Symbol>, Set<Symbol>, Hash{Symbol=>Integer})>]
+        # @api private
+        def method_name_index(def_nodes)
+          names = def_nodes.map(&:method_name)
+          [names, names.to_set, names.each_with_index.to_h]
+        end
+
+        # Build direct call edges (caller -> callee) for local calls within each method body.
+        #
+        # @param def_nodes [Array<RuboCop::AST::Node>]
+        # @param names_set [Set<Symbol>]
+        # @return [Array<Array(Symbol, Symbol)>]
+        # @api private
+        def build_direct_edges(def_nodes, names_set)
+          def_nodes.flat_map do |def_node|
+            local_calls(def_node, names_set)
+              .reject { |callee| callee == def_node.method_name }
+              .map { |callee| [def_node.method_name, callee] }
+          end
+        end
+
+        # Build sibling-order edges (a -> b) for consecutive calls inside orchestration methods.
+        #
+        # Orchestration methods are those not called by any other method in this scope.
+        #
+        # @param def_nodes [Array<RuboCop::AST::Node>]
+        # @param names_set [Set<Symbol>]
+        # @param direct_edges [Array<Array(Symbol, Symbol)>]
+        # @param names [Array<Symbol>]
+        # @return [Array<Array(Symbol, Symbol)>]
+        # @api private
+        def build_sibling_edges(def_nodes, names_set, direct_edges, names)
+          all_callees = direct_edges.to_set(&:last)
+          direct_pair_set = direct_edges.to_set
+
+          skip_cyclic_siblings = skip_cyclic_sibling_edges?
+          adj_for_siblings = build_adj(names, direct_edges)
+
+          sibling_edges = []
+
+          def_nodes.each do |def_node|
+            next if all_callees.include?(def_node.method_name)
+
+            calls = local_calls(def_node, names_set)
+            calls.each_cons(2) do |a, b|
+              # If there is already a direct relationship between a and b (either direction),
+              # do not add a sibling-order edge.
+              next if direct_pair_set.include?([a, b]) || direct_pair_set.include?([b, a])
+
+              # Optional: do not add a sibling edge that would introduce a cycle.
+              next if skip_cyclic_siblings && path_exists?(b, a, adj_for_siblings)
+
+              sibling_edges << [a, b]
+              adj_for_siblings[a] << b unless adj_for_siblings[a].include?(b)
+            end
+          end
+
+          sibling_edges
+        end
+
+        # Find the first ordering violation. Checks direct edges first, then sibling edges.
+        #
+        # @param direct_edges [Array<Array(Symbol, Symbol)>]
+        # @param sibling_edges [Array<Array(Symbol, Symbol)>]
+        # @param index_of [Hash{Symbol=>Integer}]
+        # @param adj_direct [Hash{Symbol=>Array<Symbol>}] adjacency list for direct edges
+        # @return [Array<(Symbol, Array(Symbol, Symbol))>, Array<(nil, nil)>]
+        # @api private
+        def find_violation(direct_edges, sibling_edges, index_of, adj_direct)
+          allow_recursion = allowed_recursion?
+
+          violation = first_backward_edge(direct_edges, index_of, adj_direct, allow_recursion)
+          return [:direct, violation] if violation
+
+          violation = first_backward_edge(sibling_edges, index_of, adj_direct, allow_recursion)
+          return [:sibling, violation] if violation
+
+          [nil, nil]
+        end
+
+        # Return the first backward edge found, optionally skipping edges that participate
+        # in recursion/cycles detectable in the direct-call graph (AllowedRecursion).
+        #
+        # @param edges [Array<Array(Symbol, Symbol)>]
+        # @param index_of [Hash{Symbol=>Integer}]
+        # @param adj_direct [Hash{Symbol=>Array<Symbol>}] direct-call adjacency for path checks
+        # @param allow_recursion [Boolean]
+        # @return [Array(Symbol, Symbol), nil]
+        # @api private
+        def first_backward_edge(edges, index_of, adj_direct, allow_recursion)
+          edges.find do |caller, callee|
+            next unless index_of.key?(caller) && index_of.key?(callee)
+            next if allow_recursion && path_exists?(callee, caller, adj_direct)
+
+            index_of[callee] < index_of[caller]
+          end
+        end
+
+        # Construct the final offense message, including optional notes:
+        # - sibling cycle note (for sibling violations)
+        # - cross-visibility note (public/private/protected boundary)
+        #
+        # @param violation_type [Symbol] :direct or :sibling
+        # @param violation [Array(Symbol, Symbol)] (caller_name, callee_name)
+        # @param names [Array<Symbol>]
+        # @param edges_for_sort [Array<Array(Symbol, Symbol)>]
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @return [String]
+        # @api private
+        def build_offense_message(violation_type:, violation:, names:, edges_for_sort:, body_nodes:)
+          caller_name, callee_name = violation
+
+          base = base_message_for(violation_type, caller_name, callee_name)
+          base = add_sibling_cycle_note_if_needed(base, violation_type, caller_name, callee_name, names, edges_for_sort)
+          add_cross_visibility_note_if_needed(base, body_nodes, caller_name, callee_name)
+        end
+
+        # @param violation_type [Symbol]
+        # @param caller_name [Symbol]
+        # @param callee_name [Symbol]
+        # @return [String]
+        # @api private
+        def base_message_for(violation_type, caller_name, callee_name)
+          if violation_type == :sibling
+            format(SIBLING_MSG, callee: "##{callee_name}", caller: "##{caller_name}")
+          else
+            format(MSG, callee: "##{callee_name}", caller: "##{caller_name}")
+          end
+        end
+
+        # Add a note when a sibling-order edge is part of a cycle in the combined graph.
+        #
+        # @param base_message [String]
+        # @param violation_type [Symbol]
+        # @param caller_name [Symbol]
+        # @param callee_name [Symbol]
+        # @param names [Array<Symbol>]
+        # @param edges_for_sort [Array<Array(Symbol, Symbol)>]
+        # @return [String]
+        # @api private
+        def add_sibling_cycle_note_if_needed(base_message, violation_type, caller_name, callee_name, names,
+                                             edges_for_sort)
+          return base_message unless violation_type == :sibling
+
+          adj_all = build_adj(names, edges_for_sort)
+          if path_exists?(callee_name, caller_name, adj_all)
+            format(MSG_SIBLING_CYCLE_NOTE, base: base_message)
+          else
+            base_message
+          end
+        end
+
+        # Add a note when the violation crosses visibility boundaries.
+        #
+        # @param base_message [String]
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @param caller_name [Symbol]
+        # @param callee_name [Symbol]
+        # @return [String]
+        # @api private
+        def add_cross_visibility_note_if_needed(base_message, body_nodes, caller_name, callee_name)
+          sections = extract_visibility_sections(body_nodes)
+          caller_section = section_for_method(sections, caller_name)
+          callee_section = section_for_method(sections, callee_name)
+
+          caller_vis = visibility_label(caller_section)
+          callee_vis = visibility_label(callee_section)
+
+          if caller_section && callee_section && caller_vis != callee_vis
+            format(
+              MSG_CROSS_VISIBILITY_NOTE,
+              base: base_message,
+              caller_visibility: caller_vis,
+              callee_visibility: callee_vis
+            )
+          else
+            base_message
+          end
+        end
+
+        # UNSAFE autocorrect: reorder method definitions inside one contiguous visibility section only.
+        #
+        # This method intentionally does NOT reorder across:
+        # - `private/protected/public` boundaries
+        # - nested scopes
+        # - non-visibility statements that break contiguity
         #
         # @param corrector [RuboCop::Cop::Corrector]
-        # @param body_nodes [Array<RuboCop::AST::Node>] raw nodes of the scope body
-        # @param def_nodes [Array<RuboCop::AST::Node>] all def/defs nodes in this body
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @param def_nodes [Array<RuboCop::AST::Node>]
         # @param edges [Array<Array(Symbol, Symbol)>] direct + sibling edges for this scope
-        # @param initial_violation [Array<(Symbol, Symbol)>, nil] an already-found violating edge
+        # @param initial_violation [Array(Symbol, Symbol), nil]
         # @return [void]
         # @api private
         def try_autocorrect(corrector, body_nodes, def_nodes, edges, initial_violation = nil)
           sections = extract_visibility_sections(body_nodes)
 
-          names  = def_nodes.map(&:method_name)
-          idx_of = names.each_with_index.to_h
+          names     = def_nodes.map(&:method_name)
           names_set = names.to_set
+          idx_of    = names.each_with_index.to_h
 
           # Recompute direct edges; split edges back into direct vs sibling
-          direct_edges = def_nodes.flat_map do |def_node|
-            local_calls(def_node, names_set)
-              .reject { |callee| callee == def_node.method_name }
-              .map { |callee| [def_node.method_name, callee] }
-          end
+          direct_edges = build_direct_edges(def_nodes, names_set)
           sibling_edges = edges - direct_edges
 
-          # Recursion check uses only direct edges
-          allow_recursion = cop_config.fetch('AllowedRecursion') { true }
+          allow_recursion = allowed_recursion?
           adj_direct = build_adj(names, direct_edges)
 
-          violation = initial_violation ||
-                      first_backward_edge(edges, idx_of, adj_direct, allow_recursion)
+          violation = initial_violation || first_backward_edge(edges, idx_of, adj_direct, allow_recursion)
           return unless violation
 
           caller_name, callee_name = violation
 
-          # Find the contiguous section containing both caller and callee
           target_section = sections.find do |section|
             section_names = section[:defs].map(&:method_name)
             section_names.include?(caller_name) && section_names.include?(callee_name)
@@ -263,23 +427,19 @@ module RuboCop
           defs = target_section[:defs]
           return if defs.size <= 1
 
-          section_names   = defs.map(&:method_name)
-          section_idx_of  = section_names.each_with_index.to_h
+          section_names  = defs.map(&:method_name)
+          section_idx_of = section_names.each_with_index.to_h
 
-          # Is this a direct-call violation?
           direct_violation = direct_edges.any? { |u, v| u == caller_name && v == callee_name }
 
-          # Restrict edges to this contiguous section
-          section_direct_edges  = direct_edges.select  { |u, v| section_names.include?(u) && section_names.include?(v) }
+          section_direct_edges  = direct_edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
           section_sibling_edges = sibling_edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
 
-          # Prune mutual-recursion edges inside the section if allowed
           if allow_recursion
             pair_set = section_direct_edges.to_set
             section_direct_edges = section_direct_edges.reject { |u, v| pair_set.include?([v, u]) }
           end
 
-          # Sorting edges: direct-only for direct violation, otherwise sibling + pruned direct
           section_edges_for_sort =
             if direct_violation
               section_direct_edges
@@ -290,9 +450,8 @@ module RuboCop
           sorted_names = topo_sort(section_names, section_edges_for_sort, section_idx_of)
           return if sorted_names.nil? || sorted_names == section_names
 
-          # Rebuild section (preserve per-method leading docs)
           ranges_by_name = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
-          sorted_def_sources = sorted_names.map { |n| ranges_by_name[n].source }
+          sorted_def_sources = sorted_names.map { |n| ranges_by_name.fetch(n).source }
 
           visibility_node   = target_section[:visibility]
           visibility_source = visibility_node&.source.to_s
@@ -310,14 +469,14 @@ module RuboCop
             else
               defs.map { |d| range_with_leading_comments(d).begin_pos }.min
             end
-          section_end = target_section[:end_pos]
 
+          section_end = target_section[:end_pos]
           region = Parser::Source::Range.new(processed_source.buffer, section_begin, section_end)
           corrector.replace(region, new_content)
         end
 
-        # Collects local calls (receiver is nil/self) from within a def node
-        # whose names are present in +names_set+.
+        # Collect local method calls (receiver is nil/self) from within a def node,
+        # restricted to known method names in this scope.
         #
         # @param def_node [RuboCop::AST::Node] :def or :defs
         # @param names_set [Set<Symbol>] known local method names in this scope
@@ -338,63 +497,48 @@ module RuboCop
           res.uniq
         end
 
-        # Builds an adjacency list for edges restricted to known names.
+        # Build an adjacency list for a set of edges restricted to known names.
         #
-        # @param names [Array<Symbol>] method names
-        # @param edges [Array<Array(Symbol, Symbol)>] caller→callee pairs
+        # @param names [Array<Symbol>]
+        # @param edges [Array<Array(Symbol, Symbol)>]
         # @return [Hash{Symbol=>Array<Symbol>}] adjacency list
         # @api private
         def build_adj(names, edges)
           allowed = names.to_set
           adj = Hash.new { |h, k| h[k] = [] }
+
           edges.each do |u, v|
             next unless allowed.include?(u) && allowed.include?(v)
             next if u == v
 
             adj[u] << v
           end
+
           adj
         end
 
-        # Returns the first backward edge found, optionally skipping edges
-        # that participate in mutual recursion (when AllowedRecursion is true).
+        # Breadth-first search to detect whether a path exists from +src+ to +dst+.
         #
-        # @param edges [Array<Array(Symbol, Symbol)>] candidate edges to check
-        # @param index_of [Hash{Symbol=>Integer}] current definition order (name -> index)
-        # @param adj [Hash{Symbol=>Array<Symbol>}] direct-call adjacency for path checks
-        # @param allow_recursion [Boolean] whether mutual recursion suppresses a violation
-        # @return [(Symbol, Symbol), nil] the violating (caller, callee) or nil
-        # @api private
-        def first_backward_edge(edges, index_of, adj, allow_recursion)
-          edges.find do |caller, callee|
-            next unless index_of.key?(caller) && index_of.key?(callee)
-            # If mutual recursion allowed and there is a path callee -> caller, skip
-            next if allow_recursion && path_exists?(callee, caller, adj)
-
-            # Violation: callee is defined BEFORE caller (waterfall order)
-            index_of[callee] < index_of[caller]
-          end
-        end
-
-        # Breadth-first search to detect if a path exists in the direct-call graph.
-        #
-        # @param src [Symbol] source method
-        # @param dst [Symbol] destination method
+        # @param src [Symbol]
+        # @param dst [Symbol]
         # @param adj [Hash{Symbol=>Array<Symbol>}] adjacency list
         # @param limit [Integer] traversal safety limit
-        # @return [Boolean] true if a path exists
+        # @return [Boolean]
         # @api private
         def path_exists?(src, dst, adj, limit = 200)
           return true if src == dst
 
           visited = {}
           q = [src]
+          i = 0
           steps = 0
-          until q.empty?
+
+          while i < q.length
             steps += 1
             return false if steps > limit
 
-            u = q.shift
+            u = q[i]
+            i += 1
             next if visited[u]
 
             visited[u] = true
@@ -402,22 +546,21 @@ module RuboCop
 
             adj[u].each { |v| q << v unless visited[v] }
           end
+
           false
         end
 
-        # Splits the scope body into contiguous sections of def/defs grouped
+        # Split the scope body into contiguous sections of def/defs grouped
         # by the visibility modifier immediately preceding them (private/protected/public).
         #
         # A section is represented as a Hash with:
         # - :visibility [RuboCop::AST::Node, nil] the bare visibility send, or nil
         # - :defs [Array<RuboCop::AST::Node>] contiguous def/defs nodes
-        # - :start_pos [Integer] begin_pos of the first def in the section
-        # - :end_pos [Integer] end_pos of the last def in the section
+        # - :start_pos [Integer]
+        # - :end_pos [Integer]
         #
-        # Non-visibility sends, constants, and nested scopes break contiguity.
-        #
-        # @param body_nodes [Array<RuboCop::AST::Node>] raw nodes in the scope body
-        # @return [Array<Hash>] list of sections metadata
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @return [Array<Hash>]
         # @api private
         def extract_visibility_sections(body_nodes)
           sections = []
@@ -430,45 +573,19 @@ module RuboCop
             when :def, :defs
               current_defs << node
               section_start ||= node.source_range.begin_pos
-
             when :send
-              # Close any running section before processing visibility/non-visibility send
-              unless current_defs.empty?
-                sections << {
-                  visibility: current_visibility,
-                  defs: current_defs.dup,
-                  start_pos: section_start,
-                  end_pos: body_nodes[idx - 1].source_range.end_pos
-                }
-                current_defs = []
-                section_start = nil
-              end
-
-              # Bare visibility modifiers: private/protected/public without args
-              if node.receiver.nil? && %i[private protected public].include?(node.method_name) && node.arguments.empty?
-                current_visibility = node
-              else
-                # Non-visibility send breaks contiguity and resets visibility context
-                current_visibility = nil
-              end
-
+              flush_visibility_section!(sections, current_visibility, current_defs, section_start, body_nodes, idx - 1)
+              current_defs = []
+              section_start = nil
+              current_visibility = node if bare_visibility_send?(node)
             else
-              # Any other node breaks contiguity and resets visibility context
-              unless current_defs.empty?
-                sections << {
-                  visibility: current_visibility,
-                  defs: current_defs.dup,
-                  start_pos: section_start,
-                  end_pos: body_nodes[idx - 1].source_range.end_pos
-                }
-                current_defs = []
-                section_start = nil
-              end
+              flush_visibility_section!(sections, current_visibility, current_defs, section_start, body_nodes, idx - 1)
+              current_defs = []
+              section_start = nil
               current_visibility = nil
             end
           end
 
-          # trailing defs
           unless current_defs.empty?
             sections << {
               visibility: current_visibility,
@@ -481,12 +598,66 @@ module RuboCop
           sections
         end
 
-        # Stable topological sort using the current order as a tie-breaker.
+        # Flush a currently-collected contiguous def/defs group into +sections+.
         #
-        # @param names [Array<Symbol>] names to sort
-        # @param edges [Array<Array(Symbol, Symbol)>] caller→callee edges to respect
-        # @param idx_of [Hash{Symbol=>Integer}] current order (name -> index)
-        # @return [Array<Symbol>, nil] sorted names or nil if a cycle prevents a full order
+        # @param sections [Array<Hash>]
+        # @param current_visibility [RuboCop::AST::Node, nil]
+        # @param current_defs [Array<RuboCop::AST::Node>]
+        # @param section_start [Integer, nil]
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @param last_idx [Integer]
+        # @return [void]
+        # @api private
+        def flush_visibility_section!(sections, current_visibility, current_defs, section_start, body_nodes, last_idx)
+          return if current_defs.empty?
+
+          sections << {
+            visibility: current_visibility,
+            defs: current_defs.dup,
+            start_pos: section_start,
+            end_pos: body_nodes[last_idx].source_range.end_pos
+          }
+        end
+
+        # Check if +node+ is a bare visibility modifier send:
+        # `private`, `protected`, or `public` (with no args and no receiver).
+        #
+        # @param node [RuboCop::AST::Node]
+        # @return [Boolean]
+        # @api private
+        def bare_visibility_send?(node)
+          node.receiver.nil? &&
+            VISIBILITY_METHODS.include?(node.method_name) &&
+            node.arguments.empty?
+        end
+
+        # Find the visibility section containing a given method name.
+        #
+        # @param sections [Array<Hash>]
+        # @param method_name [Symbol]
+        # @return [Hash, nil]
+        # @api private
+        def section_for_method(sections, method_name)
+          sections.find { |s| s[:defs].any? { |d| d.method_name == method_name } }
+        end
+
+        # Normalize a section to a string visibility label ("public", "private", "protected").
+        #
+        # @param section [Hash, nil]
+        # @return [String]
+        # @api private
+        def visibility_label(section)
+          return 'public' unless section # default visibility
+
+          (section[:visibility]&.method_name || :public).to_s
+        end
+
+        # Stable topological sort using the current definition order as a tie-breaker.
+        #
+        # @param names [Array<Symbol>]
+        # @param edges [Array<Array(Symbol, Symbol)>]
+        # @param idx_of [Hash{Symbol=>Integer}]
+        # @return [Array<Symbol>, nil] sorted list, or nil if cycle prevents a full order
         # @api private
         def topo_sort(names, edges, idx_of)
           indegree = Hash.new(0)
@@ -500,6 +671,7 @@ module RuboCop
             indegree[callee] += 1
             indegree[caller] ||= 0
           end
+
           names.each { |n| indegree[n] ||= 0 }
 
           queue = names.select { |n| indegree[n].zero? }.sort_by { |n| idx_of[n] }
@@ -508,10 +680,12 @@ module RuboCop
           until queue.empty?
             n = queue.shift
             result << n
+
             adj[n].each do |m|
               indegree[m] -= 1
               queue << m if indegree[m].zero?
             end
+
             queue.sort_by! { |x| idx_of[x] }
           end
 
@@ -520,11 +694,11 @@ module RuboCop
           result
         end
 
-        # Returns a range that starts at the first contiguous comment line immediately
+        # Return a range that starts at the first contiguous comment line immediately
         # above the def/defs node and ends at the end of the def. This preserves
-        # YARD/RDoc doc comments when methods are moved during autocorrect.
+        # doc comments when methods are moved during autocorrect.
         #
-        # @param node [RuboCop::AST::Node] :def or :defs to capture with leading comments
+        # @param node [RuboCop::AST::Node] :def or :defs
         # @return [Parser::Source::Range]
         # @api private
         def range_with_leading_comments(node)
@@ -533,6 +707,7 @@ module RuboCop
 
           start_line = expr.line
           lineno = start_line - 1
+
           while lineno >= 1
             line = buffer.source_line(lineno)
             break unless line =~ /\A\s*#/
@@ -543,6 +718,33 @@ module RuboCop
 
           start_pos = buffer.line_range(start_line).begin_pos
           Parser::Source::Range.new(buffer, start_pos, expr.end_pos)
+        end
+
+        # Recurse into nested scopes inside the current scope body.
+        #
+        # @param body_nodes [Array<RuboCop::AST::Node>]
+        # @return [void]
+        # @api private
+        def analyze_nested_scopes(body_nodes)
+          body_nodes.each do |n|
+            analyze_scope(n) if n.class_type? || n.module_type? || n.sclass_type?
+          end
+        end
+
+        # Read config: AllowedRecursion (default true).
+        #
+        # @return [Boolean]
+        # @api private
+        def allowed_recursion?
+          cop_config.fetch('AllowedRecursion') { true }
+        end
+
+        # Read config: SkipCyclicSiblingEdges (default false).
+        #
+        # @return [Boolean]
+        # @api private
+        def skip_cyclic_sibling_edges?
+          cop_config.fetch('SkipCyclicSiblingEdges') { false }
         end
       end
     end

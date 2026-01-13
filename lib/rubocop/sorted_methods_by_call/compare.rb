@@ -3,7 +3,7 @@
 module RuboCop
   module SortedMethodsByCall
     # +RuboCop::SortedMethodsByCall::Compare+ provides helpers to compare
-    # definition orders and call orders using “ordered subsequence” semantics.
+    # definition orders and call orders using "ordered subsequence" semantics.
     # It’s used by the cop to check that called methods appear in the same
     # relative order as they are defined (not necessarily contiguously).
     module Compare
