@@ -471,7 +471,7 @@ module RuboCop
             end
 
           section_end = target_section[:end_pos]
-          region = Parser::Source::Range.new(processed_source.buffer, section_begin, section_end)
+          region = range_between(section_begin, section_end)
           corrector.replace(region, new_content)
         end
 
@@ -717,7 +717,7 @@ module RuboCop
           end
 
           start_pos = buffer.line_range(start_line).begin_pos
-          Parser::Source::Range.new(buffer, start_pos, expr.end_pos)
+          range_between(start_pos, expr.end_pos)
         end
 
         # Recurse into nested scopes inside the current scope body.
