@@ -159,7 +159,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         private
 
         def callee
-        ^^^^^^^^^^ Define #callee after its caller #caller (waterfall order).
+        ^^^^^^^^^^ Define #callee after its caller #caller (waterfall order). (Autocorrect not supported across visibility boundaries: public vs private.)
           1
         end
 
@@ -302,7 +302,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           private
 
           def foo(klass)
-          ^^^^^^^^^^^^^^ Define #foo after #bar to match the order they are called together
+          ^^^^^^^^^^^^^^ Define #foo after #bar to match the order they are called together.
             # implementation
           end
 
@@ -386,7 +386,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
 
           def step_three
-          ^^^^^^^^^^^^^^ Define #step_three after #step_two to match the order they are called together
+          ^^^^^^^^^^^^^^ Define #step_three after #step_two to match the order they are called together.
             # third
           end
 
@@ -421,6 +421,104 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+    end
+
+    context 'when sibling ordering creates a cycle with direct call dependencies' do
+      let(:config) do
+        RuboCop::Config.new(
+          'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'AllowedRecursion' => false }
+        )
+      end
+
+      it 'registers a sibling offense and explains it may be cyclic (no autocorrect)' do
+        source = <<~RUBY
+          class SiblingCycleExample
+            def call
+              a
+              b
+            end
+
+            private
+
+            # NOTE: Direct dependencies:
+            # b -> c -> a
+            # Sibling constraint from `call` wants:
+            # a -> b
+            # Combined: a -> b -> c -> a (cycle)
+            def b
+              c
+            end
+
+            def c
+              a
+            end
+
+            def a; end
+          end
+        RUBY
+
+        expect_offense(<<~RUBY, source: source)
+          class SiblingCycleExample
+            def call
+              a
+              b
+            end
+
+            private
+
+            # NOTE: Direct dependencies:
+            # b -> c -> a
+            # Sibling constraint from `call` wants:
+            # a -> b
+            # Combined: a -> b -> c -> a (cycle)
+            def b
+            ^^^^^ Define #b after #a to match the order they are called together. (Possible sibling cycle detected; autocorrect may be skipped.)
+              c
+            end
+
+            def c
+              a
+            end
+
+            def a; end
+          end
+        RUBY
+
+        expect_no_corrections
+      end
+
+      context 'with SkipCyclicSiblingEdges enabled' do
+        let(:config) do
+          RuboCop::Config.new(
+            'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'SkipCyclicSiblingEdges' => true }
+          )
+        end
+
+        it 'does not enforce sibling edges that would introduce a cycle' do
+          expect_no_offenses(<<~RUBY)
+            class SiblingCycleExample
+              def call
+                a
+                b
+              end
+
+              private
+
+              # Direct dependencies: b -> c -> a
+              # If we enforced sibling "a -> b", we would get a cycle.
+              def b
+                c
+              end
+
+              def c
+                a
+              end
+
+              def a; end
+            end
+          RUBY
+        end
+      end
     end
   end
 

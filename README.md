@@ -15,6 +15,7 @@
     * [Usage Examples](#usage-examples)
         * [Good Code (waterfall order)](#good-code-waterfall-order)
         * [Bad Code (violates waterfall order)](#bad-code-violates-waterfall-order)
+        * [Sibling ordering and cycles (why autocorrect can be skipped)](#sibling-ordering-and-cycles-why-autocorrect-can-be-skipped)
         * [Autocorrection](#autocorrection)
     * [Testing](#testing)
     * [Development](#development)
@@ -76,6 +77,12 @@ SortedMethodsByCall/Waterfall:
   Enabled: true
   SafeAutoCorrect: false          # Autocorrection requires -A flag
   AllowedRecursion: true          # Allow mutual recursion (default: true)
+  # If true, the cop will NOT add "called together" sibling-order edges
+  # that would introduce a cycle with existing constraints. This reduces
+  # impossible-to-fix sibling offenses and makes autocorrect more reliable.
+  #
+  # Default: false
+  SkipCyclicSiblingEdges: false
 ```
 
 ## Usage Examples
@@ -134,6 +141,46 @@ class Service
   end
 end
 ```
+
+### Sibling ordering and cycles (why autocorrect can be skipped)
+
+`SortedMethodsByCall/Waterfall` enforces two kinds of ordering constraints:
+
+1. **Direct call edges**: if `caller` calls `callee`, then `caller` must be defined **before** `callee`.
+2. **Sibling ("called together") edges**: in orchestration methods (methods not called by others in the same scope),
+   consecutive calls imply an intended order (e.g., `a` then `b`), so `a` should be defined before `b`.
+
+Sometimes these constraints can conflict and create a **cycle**, which means there is no valid ordering that satisfies
+all constraints. In this situation, autocorrect may be skipped.
+
+Example:
+
+```ruby
+class SiblingCycleExample
+  def call
+    a
+    b
+  end
+
+  private
+
+  def b
+    c
+  end
+
+  def c
+    a
+  end
+
+  def a; end
+end
+```
+
+Here, the direct dependencies imply `b -> c -> a`, but the orchestration method implies `a -> b`,
+which forms the cycle `a -> b -> c -> a`.
+
+If you prefer to keep the warning (to encourage refactoring), leave `SkipCyclicSiblingEdges: false`.
+If you prefer the cop to avoid enforcing sibling edges that create cycles, set `SkipCyclicSiblingEdges: true`.
 
 ### Autocorrection
 

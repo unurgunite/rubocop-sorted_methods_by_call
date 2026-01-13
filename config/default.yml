@@ -1,6 +1,7 @@
 SortedMethodsByCall/Waterfall:
   Description: "Enforces method ordering based on call relationships."
   Enabled: true
-  VersionAdded: "1.1.2"
+  VersionAdded: "1.2.0"
   SafeAutoCorrect: false
   AllowedRecursion: true
+  SkipCyclicSiblingEdges: false
