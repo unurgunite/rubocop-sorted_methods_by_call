@@ -234,7 +234,7 @@ This will install dependencies and start an interactive console.
 
 ## Requirements
 
-- **Ruby**: >= 2.6
+- **Ruby**: >= 2.7
 - **RuboCop**: >= 1.72.0 (required for plugin system)
 
 ## Contributing
