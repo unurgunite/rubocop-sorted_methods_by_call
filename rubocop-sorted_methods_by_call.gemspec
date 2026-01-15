@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = 'RuboCop extension for method sorting in AST by stack trace.'
   spec.homepage = 'https://github.com/unurgunite/rubocop-sorted_methods_by_call'
-  spec.required_ruby_version = '>= 2.6.0'
+  spec.required_ruby_version = '>= 2.7.0'
 
   spec.metadata['allowed_push_host'] = 'https://rubygems.org'
 
@@ -34,7 +34,6 @@ Gem::Specification.new do |spec|
 
   spec.metadata['default_lint_roller_plugin'] = 'RuboCop::SortedMethodsByCall::Plugin'
 
-  spec.add_development_dependency 'fasterer'
   spec.add_development_dependency 'rake', '>= 13.0'
   spec.add_development_dependency 'rspec', '>= 3.0'
   spec.add_development_dependency 'rubocop-performance'
