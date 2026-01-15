@@ -22,11 +22,11 @@ Gem::Specification.new do |spec|
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
   spec.files = Dir.chdir(__dir__) do
     `git ls-files -z`.split("\x0").reject do |f|
-      (f == __FILE__) || f.match(%r{\A(?:(?:bin|test|spec|features)/|\.(?:git|travis|circleci)|appveyor)})
+      (f == __FILE__) ||
+        f.match(%r{\A(?:(?:bin|test|spec|features|rakelib|test_project)/|\.(?:git|travis|circleci|github)|appveyor)}) ||
+        f.match(/\A(?:Gemfile|Gemfile\.lock|Rakefile|.*\.gemspec)\z/)
     end
   end
-  spec.bindir = 'exe'
-  spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ['lib']
 
   spec.add_dependency 'lint_roller'
@@ -34,7 +34,6 @@ Gem::Specification.new do |spec|
 
   spec.metadata['default_lint_roller_plugin'] = 'RuboCop::SortedMethodsByCall::Plugin'
 
-  spec.add_development_dependency 'fasterer'
   spec.add_development_dependency 'rake', '>= 13.0'
   spec.add_development_dependency 'rspec', '>= 3.0'
   spec.add_development_dependency 'rubocop-performance'
