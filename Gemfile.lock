@@ -10,8 +10,6 @@ GEM
   specs:
     ast (2.4.3)
     diff-lcs (1.6.2)
-    fasterer (0.11.0)
-      ruby_parser (>= 3.19.1)
     json (2.18.0)
     language_server-protocol (3.17.0.5)
     lint_roller (1.1.0)
@@ -62,10 +60,6 @@ GEM
       lint_roller (~> 1.1)
       rubocop (~> 1.81)
     ruby-progressbar (1.13.0)
-    ruby_parser (3.22.0)
-      racc (~> 1.5)
-      sexp_processor (~> 4.16)
-    sexp_processor (4.17.5)
     unicode-display_width (3.2.0)
       unicode-emoji (~> 4.1)
     unicode-emoji (4.2.0)
@@ -76,7 +70,6 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
-  fasterer
   rake (>= 13.0)
   rspec (>= 3.0)
   rubocop-performance
