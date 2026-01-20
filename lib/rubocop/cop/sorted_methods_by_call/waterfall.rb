@@ -453,24 +453,15 @@ module RuboCop
           ranges_by_name = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
           sorted_def_sources = sorted_names.map { |n| ranges_by_name.fetch(n).source }
 
-          visibility_node   = target_section[:visibility]
-          visibility_source = visibility_node&.source.to_s
+          # IMPORTANT: only rewrite the contiguous def/defs block itself.
+          # Do NOT include the visibility line (private/protected/public) in the rewritten region,
+          # otherwise non-method statements between the visibility modifier and the first `def`
+          # (e.g., `helper_method :x`) can be deleted. See issue #10.
+          new_content = sorted_def_sources.join("\n\n")
 
-          new_content =
-            if visibility_source.empty?
-              sorted_def_sources.join("\n\n")
-            else
-              "#{visibility_source}\n\n#{sorted_def_sources.join("\n\n")}"
-            end
+          section_begin = defs.map { |d| ranges_by_name.fetch(d.method_name).begin_pos }.min
+          section_end   = defs.map { |d| ranges_by_name.fetch(d.method_name).end_pos }.max
 
-          section_begin =
-            if visibility_node
-              visibility_node.source_range.begin_pos
-            else
-              defs.map { |d| range_with_leading_comments(d).begin_pos }.min
-            end
-
-          section_end = target_section[:end_pos]
           region = range_between(section_begin, section_end)
           corrector.replace(region, new_content)
         end

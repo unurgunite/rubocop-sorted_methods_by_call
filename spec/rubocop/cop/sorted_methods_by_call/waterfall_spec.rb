@@ -206,6 +206,49 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     RUBY
   end
 
+  it 'does not delete helper_method declarations when autocorrecting inside a visibility block' do
+    expect_offense(<<~RUBY)
+      class TestController
+        private
+
+        helper_method :some_helper_used_in_a_view
+
+        def some_helper_used_in_a_view
+          'assume I need this somewhere else in a view'
+        end
+
+        def inner_method
+        ^^^^^^^^^^^^^^^^ Define #inner_method after its caller #outer_method (waterfall order).
+          'x'
+        end
+
+        def outer_method
+          inner_method
+        end
+      end
+    RUBY
+
+    expect_correction(<<~RUBY)
+      class TestController
+        private
+
+        helper_method :some_helper_used_in_a_view
+
+        def some_helper_used_in_a_view
+          'assume I need this somewhere else in a view'
+        end
+
+        def outer_method
+          inner_method
+        end
+
+        def inner_method
+          'x'
+        end
+      end
+    RUBY
+  end
+
   it "reorders within a protected section and keeps the single visibility line" do
     expect_offense(<<~RUBY)
       class S
