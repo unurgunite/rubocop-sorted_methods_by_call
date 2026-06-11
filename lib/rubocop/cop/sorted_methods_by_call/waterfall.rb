@@ -190,7 +190,9 @@ module RuboCop
         # @return [Array<RuboCop::AST::Node>] :def/:defs nodes
         # @api private
         def method_def_nodes(body_nodes)
-          body_nodes.select { |n| %i[def defs].include?(n.type) }
+          # rubocop:disable Layout/LeadingCommentSpace
+          body_nodes.select { |n| %i[def defs].include?(n.type) } #: Array[::RuboCop::AST::DefNode]
+          # rubocop:enable Layout/LeadingCommentSpace
         end
 
         # Compute helper structures for method names in this scope.
@@ -240,7 +242,11 @@ module RuboCop
         end
 
         def sibling_edges_for_method(def_node, names_set, direct_pair_set, adj_for_siblings)
-          local_calls(def_node, names_set).each_cons(2).filter_map do |a, b|
+          calls = local_calls(def_node, names_set)
+          calls.each_cons(2).filter_map do |a, b|
+            # @type var a: Symbol
+            # @type var b: Symbol
+
             next if direct_pair_set.include?([a, b]) || direct_pair_set.include?([b, a])
             next if skip_cyclic_sibling_edges? && path_exists?(b, a, adj_for_siblings)
 
@@ -266,7 +272,7 @@ module RuboCop
           violation = first_backward_edge(sibling_edges, index_of, adj_direct, allow_recursion)
           return [:sibling, violation] if violation
 
-          [nil, nil]
+          nil
         end
 
         # Return the first backward edge found, optionally skipping edges that participate
@@ -345,7 +351,8 @@ module RuboCop
 
         def correction_order(defs, data, violation)
           names = defs.map(&:method_name)
-          result = topo_sort(names, edges_for_section(data, names, *violation),
+          caller_name, callee_name = violation
+          result = topo_sort(names, edges_for_section(data, names, caller_name, callee_name),
                              names.each_with_index.to_h)
           result == names ? nil : result
         end
@@ -407,8 +414,10 @@ module RuboCop
           body = def_node.body
           return [] unless body
 
+          # @type var res: Array[Symbol]
           res = []
           body.each_node(:send) do |send|
+            # @type var send: ::RuboCop::AST::SendNode
             recv = send.receiver
             next unless recv.nil? || recv&.self_type?
 
@@ -426,6 +435,7 @@ module RuboCop
         # @api private
         def build_adj(names, edges)
           allowed = names.to_set
+          # @type var adj: Hash[Symbol, Array[Symbol]]
           adj = Hash.new { |h, k| h[k] = [] }
 
           edges.each do |u, v|
@@ -439,6 +449,7 @@ module RuboCop
         end
 
         def path_exists?(src, dst, adj, limit = 200)
+          # @type var visited: Hash[Symbol, bool]
           visited = {}
           queue = [src]
           limit.times do
@@ -456,6 +467,7 @@ module RuboCop
         def extract_visibility_sections(body_nodes)
           vis = nil
           body_nodes.slice_when { |_, b| not_def_node?(b) }.filter_map do |group|
+            # @type var defs: Array[::RuboCop::AST::DefNode]
             defs = group.reject { |n| not_def_node?(n) }
             next if defs.empty?
 
@@ -518,6 +530,7 @@ module RuboCop
         end
 
         def kahn_sort(indegree, adj, queue, idx_of)
+          # @type var result: Array[Symbol]
           result = []
           until queue.empty?
             result << (n = queue.shift)
@@ -532,6 +545,7 @@ module RuboCop
 
         def graph(names, edges)
           indegree = Hash.new(0)
+          # @type var adj: Hash[Symbol, Array[Symbol]]
           adj = Hash.new { |h, k| h[k] = [] }
 
           edges.each do |caller, callee|

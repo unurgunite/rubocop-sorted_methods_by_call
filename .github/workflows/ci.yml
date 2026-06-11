@@ -31,3 +31,10 @@ jobs:
 
       - name: RSpec
         run: bundle exec rspec
+
+      - name: RBS check
+        if: ${{ matrix.ruby != '2.7' }}
+        run: |
+          bundle exec rbs collection install
+          bundle exec rbs validate
+          bundle exec steep check

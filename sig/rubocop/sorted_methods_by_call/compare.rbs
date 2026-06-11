@@ -1,0 +1,8 @@
+module RuboCop
+  module SortedMethodsByCall
+    module Compare
+      def self?.hashes_ordered_equal?: (Hash[untyped, Array[Symbol]] actual, Hash[untyped, Array[Symbol]] expected) -> bool
+      def self?.subsequence?: (Array[Symbol] arr, Array[Symbol] sub) -> bool
+    end
+  end
+end
