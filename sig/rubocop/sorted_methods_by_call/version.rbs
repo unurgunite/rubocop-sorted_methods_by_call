@@ -1,0 +1,5 @@
+module RuboCop
+  module SortedMethodsByCall
+    VERSION: String
+  end
+end

@@ -10,6 +10,9 @@ AllCops:
 
 Layout/LineLength:
   Max: 120
+  AllowedPatterns:
+    - '\A\s*# \+'
+    - '@(param|return) \['
 
 Naming/FileName:
   Exclude:

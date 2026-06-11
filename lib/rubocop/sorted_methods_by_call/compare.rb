@@ -8,24 +8,11 @@ module RuboCop
     # relative order as they are defined (not necessarily contiguously).
     module Compare
       class << self
-        # +RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(actual, expected)+ -> Bool
+        # Check that each scope's call list is an ordered subsequence of its definition list.
         #
-        # For each scope key, checks that every call in +expected[k]+ exists in +actual[k]+ and
-        # appears in the same relative order (i.e., +expected[k]+ is a subsequence of +actual[k]+).
-        # Returns false if a call is unknown (not present in +actual[k]+) or out of order.
-        #
-        # @example
-        #   defs  = { main: %i[abc foo bar a hello] }
-        #   calls = { main: %i[foo bar hello] }
-        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls) #=> true
-        #
-        #   calls2 = { main: %i[bar foo] }
-        #   RuboCop::SortedMethodsByCall::Compare.hashes_ordered_equal?(defs, calls2) #=> false
-        #
-        # @param [Hash{Object=>Array<Symbol>}] actual   Actual definitions per scope.
-        # @param [Hash{Object=>Array<Symbol>}] expected Expected calls per scope.
-        # @return [Bool] true if for every scope +k+, +expected[k]+ is a subsequence of +actual[k]+
-        #   and contains no unknown methods.
+        # @param [Hash<Object, Array<Symbol>>] actual Per-scope definition method names.
+        # @param [Hash<Object, Array<Symbol>>] expected Per-scope called method names.
+        # @return [Boolean]
         def hashes_ordered_equal?(actual, expected)
           return false unless actual.is_a?(Hash) && expected.is_a?(Hash)
 
@@ -36,6 +23,11 @@ module RuboCop
           end
         end
 
+        # Check if +sub+ appears as an ordered (not necessarily contiguous) subsequence of +arr+.
+        #
+        # @param [Array<Symbol>] arr The full sequence to search within.
+        # @param [Array<Symbol>] sub The subsequence to search for.
+        # @return [Boolean]
         def subsequence?(arr, sub)
           return true if sub.nil? || sub.empty?
 
