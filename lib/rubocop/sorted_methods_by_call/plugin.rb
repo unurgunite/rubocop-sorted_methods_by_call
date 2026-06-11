@@ -16,11 +16,9 @@ module RuboCop
     # It will automatically apply rules (config/default.yml) and make the cops
     # available to the engine.
     class Plugin < LintRoller::Plugin
-      # +RuboCop::SortedMethodsByCall::Plugin#about+ -> LintRoller::About
+      # Return plugin metadata for lint_roller discovery.
       #
-      # Declares plugin metadata (name, version, homepage, description).
-      #
-      # @return [LintRoller::About] Metadata describing this plugin.
+      # @return [About]
       def about
         LintRoller::About.new(
           name: 'rubocop-sorted_methods_by_call',
@@ -30,25 +28,18 @@ module RuboCop
         )
       end
 
-      # +RuboCop::SortedMethodsByCall::Plugin#supported?+ -> Boolean
+      # Check if the plugin is supported for the given lint_roller context.
       #
-      # Indicates that this plugin supports RuboCop as the lint engine.
-      #
-      # @param [Object] context LintRoller context (engine, versions, etc.).
-      # @return [Boolean] true for RuboCop engine; false otherwise.
+      # @param [Object] context The lint_roller context to check.
+      # @return [Object]
       def supported?(context)
         context.engine == :rubocop
       end
 
-      # +RuboCop::SortedMethodsByCall::Plugin#rules+ -> LintRoller::Rules
+      # Return the RuboCop rules configuration path.
       #
-      # Returns the plugin rules for RuboCop. This points RuboCop to the default
-      # configuration file shipped with the gem (config/default.yml).
-      #
-      # @param [Object] _context LintRoller context (unused).
-      # @return [LintRoller::Rules] Rule declaration for RuboCop to load.
-      #
-      # @see config/default.yml
+      # @param [Object] _context The lint_roller context (unused).
+      # @return [Rules]
       def rules(_context)
         LintRoller::Rules.new(
           type: :path,
