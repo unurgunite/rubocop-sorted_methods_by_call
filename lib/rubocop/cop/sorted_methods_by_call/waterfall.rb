@@ -128,46 +128,41 @@ module RuboCop
         private
 
         def analyze_scope(scope_node)
-          body_nodes = scope_body_nodes(scope_node)
-          return if body_nodes.empty?
+          data = scope_data(scope_node)
+          return unless data
 
-          def_nodes = method_def_nodes(body_nodes)
-          return if def_nodes.size <= 1
-
-          names, names_set, index_of = method_name_index(def_nodes)
-
-          direct_edges = build_direct_edges(def_nodes, names_set)
-          sibling_edges = build_sibling_edges(def_nodes, names_set, direct_edges, names)
-
-          edges_for_sort = direct_edges + sibling_edges
-          adj_direct = build_adj(names, direct_edges)
-
-          handle_violation(
-            find_violation(direct_edges, sibling_edges, index_of, adj_direct),
-            def_nodes, index_of, names, edges_for_sort, body_nodes
-          )
-
-          analyze_nested_scopes(body_nodes)
+          register_violation(data) if data[:edge]
+          analyze_nested_scopes(data[:body])
         end
 
-        def handle_violation(violation_info, def_nodes, index_of, names, edges_for_sort, body_nodes)
-          violation_type, violation = violation_info
-          return unless violation
+        def scope_data(scope_node)
+          body = scope_body_nodes(scope_node)
+          defs = method_def_nodes(body) if body.any?
+          return unless defs && defs.size > 1
 
-          _, callee_name = violation
-          callee_node = def_nodes[index_of.fetch(callee_name)]
+          names, name_set, idx = method_name_index(defs)
+          direct = build_direct_edges(defs, name_set)
+          sibling = build_sibling_edges(defs, name_set, direct, names)
+          adj = build_adj(names, direct)
 
-          message = build_offense_message(
-            violation_type: violation_type,
-            violation: violation,
-            names: names,
-            edges_for_sort: edges_for_sort,
-            body_nodes: body_nodes
-          )
+          type, edge = find_violation(direct, sibling, idx, adj)
 
-          add_offense(callee_node, message: message) do |corrector|
-            try_autocorrect(corrector, body_nodes, def_nodes, edges_for_sort, violation)
+          { body: body, idx: idx, defs: defs, names: names, edges: direct + sibling,
+            type: type, edge: edge }
+        end
+
+        def register_violation(data)
+          _, callee = data[:edge]
+          add_offense(data[:defs][data[:idx].fetch(callee)], message: build_offense_message(
+            violation_type: data[:type], violation: data[:edge], names: data[:names],
+            edges_for_sort: data[:edges], body_nodes: data[:body]
+          )) do |corrector|
+            auto_correct_violation(corrector, data)
           end
+        end
+
+        def auto_correct_violation(corrector, data)
+          try_autocorrect(corrector, data[:body], data[:defs], data[:edges], data[:edge])
         end
 
         # Return the direct "body statements" inside a scope node.
@@ -235,28 +230,22 @@ module RuboCop
         def build_sibling_edges(def_nodes, names_set, direct_edges, names)
           all_callees = direct_edges.to_set(&:last)
           direct_pair_set = direct_edges.to_set
-          skip_cyclic_siblings = skip_cyclic_sibling_edges?
           adj_for_siblings = build_adj(names, direct_edges)
 
           def_nodes.each_with_object([]) do |def_node, sibling_edges|
             next if all_callees.include?(def_node.method_name)
 
-            add_sibling_edges_for_method(
-              def_node, names_set, direct_pair_set, skip_cyclic_siblings,
-              adj_for_siblings, sibling_edges
-            )
+            sibling_edges.concat(sibling_edges_for_method(def_node, names_set, direct_pair_set, adj_for_siblings))
           end
         end
 
-        def add_sibling_edges_for_method(def_node, names_set, direct_pair_set, skip_cyclic_siblings, adj_for_siblings,
-                                         sibling_edges)
-          calls = local_calls(def_node, names_set)
-          calls.each_cons(2) do |a, b|
+        def sibling_edges_for_method(def_node, names_set, direct_pair_set, adj_for_siblings)
+          local_calls(def_node, names_set).each_cons(2).filter_map do |a, b|
             next if direct_pair_set.include?([a, b]) || direct_pair_set.include?([b, a])
-            next if skip_cyclic_siblings && path_exists?(b, a, adj_for_siblings)
+            next if skip_cyclic_sibling_edges? && path_exists?(b, a, adj_for_siblings)
 
-            sibling_edges << [a, b]
             adj_for_siblings[a] << b unless adj_for_siblings[a].include?(b)
+            [a, b]
           end
         end
 
@@ -344,37 +333,49 @@ module RuboCop
         end
 
         def try_autocorrect(corrector, body_nodes, def_nodes, edges, initial_violation = nil)
-          sections = extract_visibility_sections(body_nodes)
+          data = auto_correct_data(def_nodes, edges, initial_violation) or return
+          target = section_containing(extract_visibility_sections(body_nodes), *data[:violation])
+          return unless target && target[:defs].size > 1
 
+          sorted = correction_order(target[:defs], data, data[:violation])
+          return unless sorted
+
+          replace_sorted_section(corrector, target[:defs], sorted)
+        end
+
+        def correction_order(defs, data, violation)
+          names = defs.map(&:method_name)
+          result = topo_sort(names, edges_for_section(data, names, *violation),
+                             names.each_with_index.to_h)
+          result == names ? nil : result
+        end
+
+        def auto_correct_data(def_nodes, edges, initial_violation)
           names = def_nodes.map(&:method_name)
-          names_set = names.to_set
-          idx_of = names.each_with_index.to_h
-
-          direct_edges = build_direct_edges(def_nodes, names_set)
-          sibling_edges = edges - direct_edges
-          adj_direct = build_adj(names, direct_edges)
-
-          violation = initial_violation || first_backward_edge(edges, idx_of, adj_direct, allowed_recursion?)
+          name_set = names.to_set
+          direct = build_direct_edges(def_nodes, name_set)
+          adj = build_adj(names, direct)
+          violation = initial_violation || first_backward_edge(edges, names.each_with_index.to_h, adj,
+                                                               allowed_recursion?)
           return unless violation
 
-          caller_name, callee_name = violation
-          target_section = section_containing(sections, caller_name, callee_name)
-          return unless target_section
+          { direct: direct, sibling: edges - direct, violation: violation }
+        end
 
-          defs = target_section[:defs]
-          return if defs.size <= 1
+        def edges_for_section(data, section_names, caller_name, callee_name)
+          direct = filter_names(data[:direct], section_names)
+          sibling = filter_names(data[:sibling], section_names)
+          direct = reject_reciprocal(direct) if allowed_recursion?
+          data[:direct].any? { |u, v| u == caller_name && v == callee_name } ? direct : sibling + direct
+        end
 
-          section_names = defs.map(&:method_name)
-          section_idx_of = section_names.each_with_index.to_h
+        def filter_names(edges, names)
+          edges.select { |u, v| names.include?(u) && names.include?(v) }
+        end
 
-          edges_for_sort = section_edges_for_sort(
-            direct_edges, sibling_edges, section_names, caller_name, callee_name
-          )
-
-          sorted_names = topo_sort(section_names, edges_for_sort, section_idx_of)
-          return if sorted_names.nil? || sorted_names == section_names
-
-          replace_sorted_section(corrector, defs, sorted_names)
+        def reject_reciprocal(edges)
+          pair_set = edges.to_set
+          edges.reject { |u, v| pair_set.include?([v, u]) }
         end
 
         def section_containing(sections, *method_names)
@@ -384,30 +385,15 @@ module RuboCop
           end
         end
 
-        def section_edges_for_sort(direct_edges, sibling_edges, section_names, caller_name, callee_name)
-          section_direct = direct_edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
-          section_sibling = sibling_edges.select { |u, v| section_names.include?(u) && section_names.include?(v) }
-
-          if allowed_recursion?
-            pair_set = section_direct.to_set
-            section_direct = section_direct.reject { |u, v| pair_set.include?([v, u]) }
-          end
-
-          if direct_edges.any? { |u, v| u == caller_name && v == callee_name }
-            section_direct
-          else
-            section_sibling + section_direct
-          end
+        def replace_sorted_section(corrector, defs, sorted_names)
+          ranges = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
+          content = sorted_names.map { |n| ranges.fetch(n).source }.join("\n\n")
+          corrector.replace(bounds(ranges, defs), content)
         end
 
-        def replace_sorted_section(corrector, defs, sorted_names)
-          ranges_by_name = defs.to_h { |d| [d.method_name, range_with_leading_comments(d)] }
-          sorted_sources = sorted_names.map { |n| ranges_by_name.fetch(n).source }
-          new_content = sorted_sources.join("\n\n")
-
-          positions = defs.map { |d| ranges_by_name.fetch(d.method_name) }
-          region = range_between(positions.map(&:begin_pos).min, positions.map(&:end_pos).max)
-          corrector.replace(region, new_content)
+        def bounds(ranges, defs)
+          range_between(defs.map { |d| ranges.fetch(d.method_name).begin_pos }.min,
+                        defs.map { |d| ranges.fetch(d.method_name).end_pos }.max)
         end
 
         # Collect local method calls (receiver is nil/self) from within a def node,
@@ -453,67 +439,42 @@ module RuboCop
         end
 
         def path_exists?(src, dst, adj, limit = 200)
-          return true if src == dst
-
           visited = {}
           queue = [src]
-          steps = 0
+          limit.times do
+            break if queue.empty?
 
-          until queue.empty? || steps > limit
-            steps += 1
             u = queue.shift
-            next if visited[u]
-
-            visited[u] = true
+            visited[u] ? next : (visited[u] = true)
             return true if u == dst
 
             adj[u].each { |v| queue << v unless visited[v] }
           end
-
           false
         end
 
         def extract_visibility_sections(body_nodes)
-          sections = []
-          current_visibility = nil
-          current_defs = []
-          section_start = nil
+          vis = nil
+          body_nodes.slice_when { |_, b| not_def_node?(b) }.filter_map do |group|
+            defs = group.reject { |n| not_def_node?(n) }
+            next if defs.empty?
 
-          body_nodes.each_with_index do |node, idx|
-            case node.type
-            when :def, :defs
-              current_defs << node
-              section_start ||= node.source_range.begin_pos
-            else
-              flush_visibility_section!(sections, current_visibility, current_defs, section_start,
-                                        body_nodes, idx - 1)
-              current_defs = []
-              section_start = nil
-              current_visibility = node.send_type? && bare_visibility_send?(node) ? node : nil
-            end
+            vis = vis_node(group) || vis
+            make_section(vis, defs)
           end
-
-          unless current_defs.empty?
-            sections << {
-              visibility: current_visibility,
-              defs: current_defs,
-              start_pos: section_start,
-              end_pos: current_defs.last.source_range.end_pos
-            }
-          end
-
-          sections
         end
 
-        def flush_visibility_section!(sections, current_visibility, current_defs, section_start, body_nodes, last_idx)
-          return if current_defs.empty?
+        def not_def_node?(node)
+          !%i[def defs].include?(node.type)
+        end
 
-          sections << {
-            visibility: current_visibility,
-            defs: current_defs.dup,
-            start_pos: section_start,
-            end_pos: body_nodes[last_idx].source_range.end_pos
-          }
+        def vis_node(group)
+          group.find { |n| n.send_type? && bare_visibility_send?(n) }
+        end
+
+        def make_section(vis, defs)
+          { visibility: vis, defs: defs, start_pos: defs.first.source_range.begin_pos,
+            end_pos: defs.last.source_range.end_pos }
         end
 
         # Check if +node+ is a bare visibility modifier send:
@@ -550,26 +511,26 @@ module RuboCop
         end
 
         def topo_sort(names, edges, idx_of)
-          indegree, adj = build_graph(names, edges)
+          indegree, adj = graph(names, edges)
           queue = names.select { |n| indegree[n].zero? }.sort_by { |n| idx_of[n] }
+          result = kahn_sort(indegree, adj, queue, idx_of)
+          result.size == names.size ? result : nil
+        end
+
+        def kahn_sort(indegree, adj, queue, idx_of)
           result = []
-
           until queue.empty?
-            n = queue.shift
-            result << n
-
+            result << (n = queue.shift)
             adj[n].each do |m|
               indegree[m] -= 1
               queue << m if indegree[m].zero?
             end
-
             queue.sort_by! { |x| idx_of[x] }
           end
-
-          result.size == names.size ? result : nil
+          result
         end
 
-        def build_graph(names, edges)
+        def graph(names, edges)
           indegree = Hash.new(0)
           adj = Hash.new { |h, k| h[k] = [] }
 
@@ -579,7 +540,6 @@ module RuboCop
 
             adj[caller] << callee
             indegree[callee] += 1
-            indegree[caller] ||= 0
           end
 
           names.each { |n| indegree[n] ||= 0 }
