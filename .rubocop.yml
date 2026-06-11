@@ -5,7 +5,7 @@ plugins:
   - rubocop-rspec
 
 AllCops:
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 2.7
   NewCops: enable
 
 Layout/LineLength:

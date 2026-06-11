@@ -36,36 +36,14 @@ module RuboCop
           end
         end
 
-        # +RuboCop::SortedMethodsByCall::Compare.subsequence?(arr, sub)+ -> Bool
-        #
-        # Returns true if +sub+ is a subsequence of +arr+ (order preserved),
-        # not necessarily contiguous. An empty +sub+ returns true.
-        #
-        # @example
-        #   arr = %i[abc foo bar a hello]
-        #   RuboCop::SortedMethodsByCall::Compare.subsequence?(arr, %i[foo bar hello]) #=> true
-        #   RuboCop::SortedMethodsByCall::Compare.subsequence?(arr, %i[bar foo])       #=> false
-        #
-        # @param [Array<#==>] arr Base sequence (typically Array<Symbol>).
-        # @param [Array<#==>, nil] sub Candidate subsequence (typically Array<Symbol>).
-        # @return [Bool] true if +sub+ appears in +arr+ in order.
         def subsequence?(arr, sub)
           return true if sub.nil? || sub.empty?
 
           i = 0
-          sub.each do |el|
-            found = false
-            while i < arr.length
-              if arr[i] == el
-                found = true
-                i += 1
-                break
-              end
-              i += 1
-            end
-            return false unless found
+          sub.all? do |el|
+            i += 1 while i < arr.length && arr[i] != el
+            (i < arr.length).tap { i += 1 }
           end
-          true
         end
       end
     end
