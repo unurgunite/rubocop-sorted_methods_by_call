@@ -10,8 +10,8 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
     )
   end
 
-  it 'accepts waterfall order' do
-    expect_no_offenses(<<~RUBY)
+  context 'when callers appear before callees' do
+    subject(:source) { <<~RUBY }
       def foo
         bar
       end
@@ -20,10 +20,14 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         123
       end
     RUBY
+
+    it 'accepts waterfall order' do
+      expect_no_offenses(source)
+    end
   end
 
-  it 'registers offense when callee is defined before caller' do
-    expect_offense(<<~RUBY)
+  context 'when callee is defined before caller' do
+    subject(:source) { <<~RUBY }
       def bar
       ^^^^^^^ Define #bar after its caller #foo (waterfall order).
         123
@@ -33,79 +37,93 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         bar
       end
     RUBY
+
+    it 'registers offense' do
+      expect_offense(source)
+    end
   end
 
-  context 'when recursion is used' do
+  context 'with recursion' do
+    subject(:source) { <<~RUBY }
+      def factorial(n)
+        return 1 if n <= 1
+        factorial(n - 1)
+      end
+    RUBY
+
     it 'ignores recursive self-calls' do
-      expect_no_offenses(<<~RUBY)
-        def factorial(n)
-          return 1 if n <= 1
-          factorial(n - 1)
-        end
-      RUBY
+      expect_no_offenses(source)
     end
   end
 
   context 'with nested class scopes' do
-    it 'accepts well-ordered nested classes' do
-      expect_no_offenses(<<~RUBY)
-        class Outer
-          def alpha; beta; end
-          def beta;  1; end
+    subject(:source) { <<~RUBY }
+      class Outer
+        def alpha; beta; end
+        def beta;  1; end
 
-          class Inner
-            def inside; helper; end
-            def helper; 2; end
-          end
+        class Inner
+          def inside; helper; end
+          def helper; 2; end
         end
-      RUBY
+      end
+    RUBY
+
+    it 'accepts well-ordered nested classes' do
+      expect_no_offenses(source)
     end
   end
 
-  context 'when methods are out of order in a class' do
-    it 'registers an offense' do
-      expect_offense(<<~RUBY)
-        class Example
-          def bar; helper; end
-          ^^^^^^^^^^^^^^^^^^^^ Define #bar after its caller #foo (waterfall order).
-          def helper; 1; end
-          def foo
-            bar
-          end
+  context 'with methods out of order in a class' do
+    subject(:source) { <<~RUBY }
+      class Example
+        def bar; helper; end
+        ^^^^^^^^^^^^^^^^^^^^ Define #bar after its caller #foo (waterfall order).
+        def helper; 1; end
+        def foo
+          bar
         end
-      RUBY
+      end
+    RUBY
+
+    it 'registers an offense' do
+      expect_offense(source)
     end
   end
 
   context 'with modules' do
-    it 'detects offenses within module scope' do
-      expect_offense(<<~RUBY)
-        module Util
-          def bar; 1; end
-          ^^^^^^^^^^^^^^^ Define #bar after its caller #foo (waterfall order).
-          def foo
-            bar
-          end
+    subject(:source) { <<~RUBY }
+      module Util
+        def bar; 1; end
+        ^^^^^^^^^^^^^^^ Define #bar after its caller #foo (waterfall order).
+        def foo
+          bar
         end
-      RUBY
+      end
+    RUBY
+
+    it 'detects offenses within module scope' do
+      expect_offense(source)
     end
   end
 
   context 'with singleton class (class << self)' do
-    it 'handles singleton method definitions' do
-      expect_no_offenses(<<~RUBY)
-        class X
-          class << self
-            def first; second; end
-            def second; 1; end
-          end
+    subject(:source) { <<~RUBY }
+      class X
+        class << self
+          def first; second; end
+          def second; 1; end
         end
-      RUBY
+      end
+    RUBY
+
+    it 'handles singleton method definitions' do
+      expect_no_offenses(source)
     end
   end
 
-  it 'reorders methods and preserves leading doc comments in a simple section' do
-    expect_offense(<<~RUBY)
+  context 'with autocorrect across sections of the same visibility' do
+    subject(:source) { <<~RUBY }
       class S
         # Doc for well
         # does something
@@ -121,7 +139,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    expect_correction(<<~RUBY)
+    let(:corrected_source) { <<~RUBY }
       class S
         # Doc for do_smth
         def do_smth
@@ -135,10 +153,15 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       end
     RUBY
+
+    it 'reorders methods and preserves leading doc comments' do
+      expect_offense(source)
+      expect_correction(corrected_source)
+    end
   end
 
-  it 'does not cross visibility sections (no autocorrect across private/public)' do
-    source = <<~RUBY
+  context 'with cross-visibility sections' do
+    subject(:source) { <<~RUBY }
       class T
         private
 
@@ -154,7 +177,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    expect_offense(<<~RUBY, source: source)
+    let(:offense_source) { <<~RUBY }
       class T
         private
 
@@ -171,12 +194,14 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    # No changes expected because caller/callee are in different sections
-    expect_no_corrections
+    it 'does not cross visibility sections' do
+      expect_offense(offense_source, source: source)
+      expect_no_corrections
+    end
   end
 
-  it "reorders within a private section and keeps the single visibility line" do
-    expect_offense(<<~RUBY)
+  context 'with a private section' do
+    subject(:source) { <<~RUBY }
       class S
         private
 
@@ -191,7 +216,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    expect_correction(<<~RUBY)
+    let(:corrected_source) { <<~RUBY }
       class S
         private
 
@@ -204,10 +229,15 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       end
     RUBY
+
+    it 'reorders and keeps the single visibility line' do
+      expect_offense(source)
+      expect_correction(corrected_source)
+    end
   end
 
-  it 'does not delete helper_method declarations when autocorrecting inside a visibility block' do
-    expect_offense(<<~RUBY)
+  context 'with helper_method declarations inside a visibility block' do
+    subject(:source) { <<~RUBY }
       class TestController
         private
 
@@ -228,7 +258,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    expect_correction(<<~RUBY)
+    let(:corrected_source) { <<~RUBY }
       class TestController
         private
 
@@ -247,10 +277,15 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       end
     RUBY
+
+    it 'does not delete helper_method declarations' do
+      expect_offense(source)
+      expect_correction(corrected_source)
+    end
   end
 
-  it "reorders within a protected section and keeps the single visibility line" do
-    expect_offense(<<~RUBY)
+  context 'with a protected section' do
+    subject(:source) { <<~RUBY }
       class S
         protected
 
@@ -265,7 +300,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
       end
     RUBY
 
-    expect_correction(<<~RUBY)
+    let(:corrected_source) { <<~RUBY }
       class S
         protected
 
@@ -278,62 +313,70 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       end
     RUBY
+
+    it 'reorders and keeps the single visibility line' do
+      expect_offense(source)
+      expect_correction(corrected_source)
+    end
   end
 
   context 'with complex call graphs' do
+    subject(:source) { <<~RUBY }
+      class Service
+        def call
+          foo
+          bar
+        end
+
+        private
+
+        def foo
+        ^^^^^^^ Define #foo after its caller #method123 (waterfall order).
+          123
+        end
+
+        def bar
+          method123
+        end
+
+        def method123
+          foo
+        end
+      end
+    RUBY
+
+    let(:corrected_source) { <<~RUBY }
+      class Service
+        def call
+          foo
+          bar
+        end
+
+        private
+
+        def bar
+          method123
+        end
+
+        def method123
+          foo
+        end
+
+        def foo
+          123
+        end
+      end
+    RUBY
+
     it 'handles methods called from multiple places' do
-      expect_offense(<<~RUBY)
-        class Service
-          def call
-            foo
-            bar
-          end
-
-          private
-
-          def foo
-          ^^^^^^^ Define #foo after its caller #method123 (waterfall order).
-            123
-          end
-
-          def bar
-            method123
-          end
-
-          def method123
-            foo
-          end
-        end
-      RUBY
-
-      expect_correction(<<~RUBY)
-        class Service
-          def call
-            foo
-            bar
-          end
-
-          private
-
-          def bar
-            method123
-          end
-
-          def method123
-            foo
-          end
-
-          def foo
-            123
-          end
-        end
-      RUBY
+      expect_offense(source)
+      expect_correction(corrected_source)
     end
   end
 
   context 'with sibling ordering (orchestration methods)' do
-    it 'detects when methods called in sequence are defined out of order' do
-      expect_offense(<<~RUBY)
+    context 'when methods called in sequence are defined out of order' do
+      let(:sibling_order_source) { <<~RUBY }
         class SomeClass
           def build
             klass = Class.new
@@ -355,7 +398,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_correction(<<~RUBY)
+      let(:sibling_order_corrected) { <<~RUBY }
         class SomeClass
           def build
             klass = Class.new
@@ -375,10 +418,15 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+
+      it 'detects when methods called in sequence are defined out of order' do
+        expect_offense(sibling_order_source)
+        expect_correction(sibling_order_corrected)
+      end
     end
 
-    it 'accepts methods defined in the same order they are called together' do
-      expect_no_offenses(<<~RUBY)
+    context 'when methods are defined in the same order they are called together' do
+      let(:sibling_accept_source) { <<~RUBY }
         class Generator
           def build
             klass = Class.new
@@ -398,10 +446,14 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+
+      it 'accepts methods defined in the same order they are called together' do
+        expect_no_offenses(sibling_accept_source)
+      end
     end
 
-    it 'does not enforce sibling ordering when methods also have direct call relationships' do
-      expect_no_offenses(<<~RUBY)
+    context 'when methods also have direct call relationships' do
+      let(:sibling_with_direct_source) { <<~RUBY }
         class Service
           def orchestrate
             prepare_data
@@ -409,7 +461,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
 
           def process_data
-            prepare_data  # direct call relationship exists
+            prepare_data
           end
 
           def prepare_data
@@ -417,10 +469,14 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+
+      it 'does not enforce sibling ordering' do
+        expect_no_offenses(sibling_with_direct_source)
+      end
     end
 
-    it 'handles multiple sibling relationships in complex orchestration' do
-      expect_offense(<<~RUBY)
+    context 'with multiple sibling relationships in complex orchestration' do
+      let(:complex_sibling_source) { <<~RUBY }
         class Pipeline
           def run
             step_one
@@ -443,7 +499,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_correction(<<~RUBY)
+      let(:complex_sibling_corrected) { <<~RUBY }
         class Pipeline
           def run
             step_one
@@ -464,110 +520,120 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+
+      it 'handles multiple sibling relationships in complex orchestration' do
+        expect_offense(complex_sibling_source)
+        expect_correction(complex_sibling_corrected)
+      end
     end
 
     context 'when sibling ordering creates a cycle with direct call dependencies' do
-      let(:config) do
+      let(:cycle_enabled_config) do
         RuboCop::Config.new(
           'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'AllowedRecursion' => false }
         )
       end
+      let(:config) { cycle_enabled_config }
+
+      let(:source) { <<~RUBY }
+        class SiblingCycleExample
+          def call
+            a
+            b
+          end
+
+          private
+
+          # NOTE: Direct dependencies:
+          # b -> c -> a
+          # Sibling constraint from `call` wants:
+          # a -> b
+          # Combined: a -> b -> c -> a (cycle)
+          def b
+            c
+          end
+
+          def c
+            a
+          end
+
+          def a; end
+        end
+      RUBY
+
+      let(:offense_source) { <<~RUBY }
+        class SiblingCycleExample
+          def call
+            a
+            b
+          end
+
+          private
+
+          # NOTE: Direct dependencies:
+          # b -> c -> a
+          # Sibling constraint from `call` wants:
+          # a -> b
+          # Combined: a -> b -> c -> a (cycle)
+          def b
+          ^^^^^ Define #b after #a to match the order they are called together. (Possible sibling cycle detected; autocorrect may be skipped.)
+            c
+          end
+
+          def c
+            a
+          end
+
+          def a; end
+        end
+      RUBY
 
       it 'registers a sibling offense and explains it may be cyclic (no autocorrect)' do
-        source = <<~RUBY
-          class SiblingCycleExample
-            def call
-              a
-              b
-            end
-
-            private
-
-            # NOTE: Direct dependencies:
-            # b -> c -> a
-            # Sibling constraint from `call` wants:
-            # a -> b
-            # Combined: a -> b -> c -> a (cycle)
-            def b
-              c
-            end
-
-            def c
-              a
-            end
-
-            def a; end
-          end
-        RUBY
-
-        expect_offense(<<~RUBY, source: source)
-          class SiblingCycleExample
-            def call
-              a
-              b
-            end
-
-            private
-
-            # NOTE: Direct dependencies:
-            # b -> c -> a
-            # Sibling constraint from `call` wants:
-            # a -> b
-            # Combined: a -> b -> c -> a (cycle)
-            def b
-            ^^^^^ Define #b after #a to match the order they are called together. (Possible sibling cycle detected; autocorrect may be skipped.)
-              c
-            end
-
-            def c
-              a
-            end
-
-            def a; end
-          end
-        RUBY
-
+        expect_offense(offense_source, source: source)
         expect_no_corrections
       end
+    end
 
-      context 'with SkipCyclicSiblingEdges enabled' do
-        let(:config) do
-          RuboCop::Config.new(
-            'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'SkipCyclicSiblingEdges' => true }
-          )
+    context 'with SkipCyclicSiblingEdges enabled' do
+      let(:skip_cyclic_config) do
+        RuboCop::Config.new(
+          'SortedMethodsByCall/Waterfall' => { 'Enabled' => true, 'SkipCyclicSiblingEdges' => true }
+        )
+      end
+      let(:config) { skip_cyclic_config }
+
+      let(:source) { <<~RUBY }
+        class SiblingCycleExample
+          def call
+            a
+            b
+          end
+
+          private
+
+          # Direct dependencies: b -> c -> a
+          # If we enforced sibling "a -> b", we would get a cycle.
+          def b
+            c
+          end
+
+          def c
+            a
+          end
+
+          def a; end
         end
+      RUBY
 
-        it 'does not enforce sibling edges that would introduce a cycle' do
-          expect_no_offenses(<<~RUBY)
-            class SiblingCycleExample
-              def call
-                a
-                b
-              end
-
-              private
-
-              # Direct dependencies: b -> c -> a
-              # If we enforced sibling "a -> b", we would get a cycle.
-              def b
-                c
-              end
-
-              def c
-                a
-              end
-
-              def a; end
-            end
-          RUBY
-        end
+      it 'does not enforce sibling edges that would introduce a cycle' do
+        expect_no_offenses(source)
       end
     end
   end
 
-  context 'when non-contiguous sections' do
-    it 'does not autocorrect across a nested class' do
-      source = <<~RUBY
+  context 'with non-contiguous sections (nested classes, non-visibility sends)' do
+    context 'with a nested class between methods' do
+      let(:across_nested_source) { <<~RUBY }
         class Demo
           def b
             1
@@ -583,7 +649,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_offense(<<~RUBY, source: source)
+      let(:across_nested_offense) { <<~RUBY }
         class Demo
           def b
           ^^^^^ Define #b after its caller #a (waterfall order).
@@ -600,11 +666,14 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_no_corrections
+      it 'does not autocorrect across a nested class' do
+        expect_offense(across_nested_offense, source: across_nested_source)
+        expect_no_corrections
+      end
     end
 
-    it 'autocorrects within a contiguous section and preserves a nested class below' do
-      expect_offense(<<~RUBY)
+    context 'with a contiguous section and a nested class below' do
+      let(:contiguous_source) { <<~RUBY }
         class Demo
           def d
           ^^^^^ Define #d after its caller #c (waterfall order).
@@ -621,7 +690,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_correction(<<~RUBY)
+      let(:contiguous_corrected) { <<~RUBY }
         class Demo
           def c
             d
@@ -636,10 +705,15 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
           end
         end
       RUBY
+
+      it 'autocorrects within a contiguous section and preserves a nested class below' do
+        expect_offense(contiguous_source)
+        expect_correction(contiguous_corrected)
+      end
     end
 
-    it 'does not autocorrect across a non-visibility send' do
-      source = <<~RUBY
+    context 'with a non-visibility send between methods' do
+      let(:non_vis_source) { <<~RUBY }
         class Demo
           def b
             1
@@ -653,7 +727,7 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_offense(<<~RUBY, source: source)
+      let(:non_vis_offense) { <<~RUBY }
         class Demo
           def b
           ^^^^^ Define #b after its caller #a (waterfall order).
@@ -668,7 +742,10 @@ RSpec.describe RuboCop::Cop::SortedMethodsByCall::Waterfall, :config do
         end
       RUBY
 
-      expect_no_corrections
+      it 'does not autocorrect across a non-visibility send' do
+        expect_offense(non_vis_offense, source: non_vis_source)
+        expect_no_corrections
+      end
     end
   end
 end

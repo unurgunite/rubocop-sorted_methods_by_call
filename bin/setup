@@ -1,20 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
-set -vx
-
-PROJECT_NAME='rubocop-sorted_methods_by_call'
-if pwd | grep $PROJECT_NAME; then
-  cd "${PWD%$PROJECT_NAME*}$PROJECT_NAME"
-else
-  echo "Change your working directory to the $PROJECT_NAME dir or its relative directories. Exiting with error code 1"
-  exit 1
-fi
 
 bundle install
 
-gem build "$PROJECT_NAME".gemspec
-GEM_VERSION=$(bundle info $PROJECT_NAME | head -n 1 | sed 's/.*(\(.*\))/\1/')
-GEM_ARCHIVE="$PROJECT_NAME-$GEM_VERSION.gem"
-gem install "$GEM_ARCHIVE"
+gem build rubocop-sorted_methods_by_call.gemspec
+gem install --local rubocop-sorted_methods_by_call-*.gem
 bin/console

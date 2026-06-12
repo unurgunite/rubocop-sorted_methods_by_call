@@ -1,0 +1,71 @@
+module RuboCop
+  module Cop
+    module SortedMethodsByCall
+      class Waterfall < ::RuboCop::Cop::Base
+        extend ::RuboCop::Cop::AutoCorrector
+
+        include ::RuboCop::Cop::RangeHelp
+
+        type data = Hash[Symbol, untyped]
+        type section = Hash[Symbol, untyped]
+
+        VISIBILITY_METHODS: Array[Symbol]
+
+        MSG: String
+        SIBLING_MSG: String
+        MSG_CROSS_VISIBILITY_NOTE: String
+        MSG_SIBLING_CYCLE_NOTE: String
+
+        def on_begin: (::RuboCop::AST::Node node) -> void
+        def on_class: (::RuboCop::AST::Node node) -> void
+        def on_module: (::RuboCop::AST::Node node) -> void
+        def on_sclass: (::RuboCop::AST::Node node) -> void
+
+        private
+
+        def analyze_scope: (::RuboCop::AST::Node scope_node) -> void
+        def scope_data: (::RuboCop::AST::Node scope_node) -> data?
+        def register_violation: (data data) -> void
+        def auto_correct_violation: (::RuboCop::Cop::Corrector corrector, data data) -> void
+        def scope_body_nodes: (untyped node) -> Array[::RuboCop::AST::Node]
+        def method_def_nodes: (Array[::RuboCop::AST::Node] body_nodes) -> Array[::RuboCop::AST::DefNode]
+        def method_name_index: (Array[::RuboCop::AST::DefNode] def_nodes) -> [ Array[Symbol], Set[Symbol], Hash[Symbol, Integer] ]
+        def build_direct_edges: (Array[::RuboCop::AST::DefNode] def_nodes, Set[Symbol] names_set) -> Array[ [Symbol, Symbol] ]
+        def build_sibling_edges: (Array[::RuboCop::AST::DefNode] def_nodes, Set[Symbol] names_set, Array[ [Symbol, Symbol] ] direct_edges, Array[Symbol] names) -> Array[ [Symbol, Symbol] ]
+        def sibling_edges_for_method: (::RuboCop::AST::DefNode def_node, Set[Symbol] names_set, Set[ [Symbol, Symbol] ] direct_pair_set, Hash[Symbol, Array[Symbol]] adj_for_siblings) -> Array[ [Symbol, Symbol] ]
+        def find_violation: (Array[ [Symbol, Symbol] ] direct_edges, Array[ [Symbol, Symbol] ] sibling_edges, Hash[Symbol, Integer] index_of, Hash[Symbol, Array[Symbol]] adj_direct) -> [ Symbol, [Symbol, Symbol]? ]?
+        def first_backward_edge: (Array[ [Symbol, Symbol] ] edges, Hash[Symbol, Integer] index_of, Hash[Symbol, Array[Symbol]] adj_direct, bool allow_recursion) -> [Symbol, Symbol]?
+        def build_offense_message: (violation_type: Symbol, violation: [Symbol, Symbol], names: Array[Symbol], edges_for_sort: Array[ [Symbol, Symbol] ], body_nodes: Array[::RuboCop::AST::Node]) -> String
+        def base_message_for: (Symbol violation_type, Symbol caller_name, Symbol callee_name) -> String
+        def add_sibling_cycle_note_if_needed: (String base_message, Symbol violation_type, Symbol caller_name, Symbol callee_name, Hash[Symbol, Array[Symbol]] adj_all) -> String
+        def add_cross_visibility_note_if_needed: (String base_message, Array[::RuboCop::AST::Node] body_nodes, Symbol caller_name, Symbol callee_name) -> String
+        def try_autocorrect: (::RuboCop::Cop::Corrector corrector, Array[::RuboCop::AST::Node] body_nodes, Array[::RuboCop::AST::DefNode] def_nodes, Array[ [Symbol, Symbol] ] edges, ?[Symbol, Symbol]? initial_violation) -> void
+        def correction_order: (Array[::RuboCop::AST::DefNode] defs, data data, [Symbol, Symbol] violation) -> Array[Symbol]?
+        def auto_correct_data: (Array[::RuboCop::AST::DefNode] def_nodes, Array[ [Symbol, Symbol] ] edges, [Symbol, Symbol]? initial_violation) -> data?
+        def edges_for_section: (data data, Array[Symbol] section_names, Symbol caller_name, Symbol callee_name) -> Array[ [Symbol, Symbol] ]
+        def filter_names: (Array[ [Symbol, Symbol] ] edges, Array[Symbol] names) -> Array[ [Symbol, Symbol] ]
+        def reject_reciprocal: (Array[ [Symbol, Symbol] ] edges) -> Array[ [Symbol, Symbol] ]
+        def section_containing: (Array[section] sections, *Symbol method_names) -> section?
+        def replace_sorted_section: (::RuboCop::Cop::Corrector corrector, Array[::RuboCop::AST::DefNode] defs, Array[Symbol] sorted_names) -> void
+        def bounds: (Hash[Symbol, untyped] ranges, Array[::RuboCop::AST::DefNode] defs) -> ::Parser::Source::Range
+        def local_calls: (::RuboCop::AST::DefNode def_node, Set[Symbol] names_set) -> Array[Symbol]
+        def build_adj: (Array[Symbol] names, Array[ [Symbol, Symbol] ] edges) -> Hash[Symbol, Array[Symbol]]
+        def path_exists?: (Symbol src, Symbol dst, Hash[Symbol, Array[Symbol]] adj, ?Integer limit) -> bool
+        def extract_visibility_sections: (Array[::RuboCop::AST::Node] body_nodes) -> Array[section]
+        def not_def_node?: (untyped node) -> bool
+        def vis_node: (Array[::RuboCop::AST::Node] group) -> ::RuboCop::AST::Node?
+        def make_section: (::RuboCop::AST::Node? vis, Array[::RuboCop::AST::DefNode] defs) -> section
+        def bare_visibility_send?: (untyped node) -> bool
+        def section_for_method: (Array[section] sections, Symbol method_name) -> section?
+        def visibility_label: (section? section) -> String
+        def topo_sort: (Array[Symbol] names, Array[ [Symbol, Symbol] ] edges, Hash[Symbol, Integer] idx_of) -> Array[Symbol]?
+        def kahn_sort: (Hash[Symbol, Integer] indegree, Hash[Symbol, Array[Symbol]] adj, Array[Symbol] queue, Hash[Symbol, Integer] idx_of) -> Array[Symbol]
+        def graph: (Array[Symbol] names, Array[ [Symbol, Symbol] ] edges) -> [ Hash[Symbol, Integer], Hash[Symbol, Array[Symbol]] ]
+        def range_with_leading_comments: (::RuboCop::AST::Node node) -> ::Parser::Source::Range
+        def analyze_nested_scopes: (Array[::RuboCop::AST::Node] body_nodes) -> void
+        def allowed_recursion?: -> bool
+        def skip_cyclic_sibling_edges?: -> bool
+      end
+    end
+  end
+end

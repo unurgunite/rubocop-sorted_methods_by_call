@@ -1,0 +1,18 @@
+---
+rbs:
+  enabled: true
+  sig_dirs: ["sig"]
+  collection_dirs:
+    - ".gem_rbs_collection/rubocop-ast/1.46"
+    - ".gem_rbs_collection/rubocop/1.57"
+    - ".gem_rbs_collection/parser/3.2"
+    - ".gem_rbs_collection/ast/2.4"
+  collapse_generics: false
+
+emit:
+  header: false
+  include_default_message: true
+  include_param_documentation: true
+
+inference:
+  fallback_type: "Object"

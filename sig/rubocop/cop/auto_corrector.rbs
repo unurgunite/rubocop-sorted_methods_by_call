@@ -1,0 +1,11 @@
+# Patch: the RBS collection places AutoCorrector at RuboCop::AutoCorrector
+# (matching older rubocop), but the actual rubocop gem defines it inside
+# the Cop module.  Re-export at the correct path so steep can find it
+# when the Ruby code says `extend ::RuboCop::Cop::AutoCorrector`.
+module RuboCop
+  module Cop
+    module AutoCorrector
+      def support_autocorrect?: () -> true
+    end
+  end
+end

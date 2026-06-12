@@ -36,6 +36,11 @@
 - **Full RuboCop integration**: Works seamlessly with modern RuboCop plugin system;
 - **Comprehensive scope support**: Classes, modules, singleton classes, and top-level;
 
+> [!NOTE]
+> This gem implements **true waterfall ordering** that considers the complete call graph across all methods in
+> a scope. Methods are ordered so that every callee appears after all of its callers, creating a natural top-down
+> reading flow.
+
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -93,7 +98,6 @@ In waterfall ordering, **callers come before callees**. This creates a top-down 
 before implementation details.
 
 ```ruby
-
 class Service
   def call
     foo
@@ -119,7 +123,6 @@ end
 ### Bad Code (violates waterfall order)
 
 ```ruby
-
 class Service
   def call
     foo
@@ -261,9 +264,3 @@ The gem is available as open source under the terms of MIT License.
 ## Code of Conduct
 
 Everyone interacting with this project is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
----
-
-> **Note**: This gem implements **true waterfall ordering** that considers the complete call graph across all methods in
-> a scope. Methods are ordered so that every callee appears after all of its callers, creating a natural top-down
-> reading flow.

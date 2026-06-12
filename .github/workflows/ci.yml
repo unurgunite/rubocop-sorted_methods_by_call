@@ -22,7 +22,11 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
+
+      - name: Bundle install
+        run: |
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
 
       - name: RuboCop (self‑check)
         run: |
@@ -31,3 +35,14 @@ jobs:
 
       - name: RSpec
         run: bundle exec rspec
+
+      - name: RBS
+        if: ${{ matrix.ruby >= '3.2' }}
+        run: |
+          bundle exec rbs collection install
+          bundle exec rbs validate
+          bundle exec steep check
+
+      - name: docscribe
+        if: ${{ matrix.ruby >= '3.2' }}
+        run: bundle exec docscribe lib
