@@ -16,3 +16,6 @@ mkmf.log
 # rspec failure tracking
 .rspec_status
 *.gem
+
+# RBS collection
+.gem_rbs_collection/
